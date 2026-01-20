@@ -1,0 +1,12 @@
+[tool.pyright]
+include = ["."]
+exclude = ["**/__pycache__", ".venv"]
+reportMissingImports = false
+reportMissingTypeStubs = false
+pythonVersion = "3.11"
+venvPath = ".venv"
+venv = ".venv"
+stubPath = "typings"
+
+[tool.pylance]
+enable = true

@@ -1,0 +1,6 @@
+.page-bg {
+    background: linear-gradient(135deg, #4b49ac 0%, #6d67d9 100%);
+    min-height: 100vh;
+    padding: 30px;
+    color: white;
+}

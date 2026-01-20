@@ -1,0 +1,39 @@
+/* src/styles/ManageSubjects.css */
+.create-form {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 2rem;
+  }
+  .create-form input, .create-form select {
+    flex: 1;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid #ccc;
+  }
+  .create-form button {
+    background: #d32f2f;
+    color: white;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: 0.3s;
+  }
+  .create-form button:hover {
+    background: #b71c1c;
+  }
+  
+  .subjects-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px,1fr));
+    gap: 1.5rem;
+  }
+  .subject-card {
+    background: white;
+    padding: 1.8rem;
+    border-radius: 16px;
+    box-shadow: 0 12px 30px rgba(211,47,47,0.12);
+  }
+  .subject-card h3 { color: #d32f2f; margin-bottom: 0.5rem; }
+  

@@ -1,0 +1,473 @@
+// src/components/layout/StudentLayout.jsx - VERSION CORRIGÉE
+import React, { useState, useEffect } from "react";
+import { Link, useLocation, useNavigate, Outlet } from "react-router-dom";
+import { toast } from "react-toastify";
+import { useAuth } from "../../context/AuthContext";
+import api from "../../services/api";
+
+// Icons MUI
+import DashboardIcon from "@mui/icons-material/Dashboard";
+import BookIcon from "@mui/icons-material/Book";
+import QuizIcon from "@mui/icons-material/Quiz";
+import ScheduleIcon from "@mui/icons-material/Schedule";
+import VideoCallIcon from "@mui/icons-material/VideoCall";
+import PeopleIcon from "@mui/icons-material/People";
+import ChatIcon from "@mui/icons-material/Chat";
+import LogoutIcon from "@mui/icons-material/Logout";
+import MenuIcon from "@mui/icons-material/Menu";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import NotificationsIcon from "@mui/icons-material/Notifications";
+import FolderIcon from "@mui/icons-material/Folder";
+import ClassIcon from "@mui/icons-material/Class";
+import DescriptionIcon from "@mui/icons-material/Description";
+import Badge from "@mui/material/Badge";
+import {
+  AppBar,
+  Toolbar,
+  IconButton,
+  Typography,
+  Drawer,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  Box,
+  Avatar,
+  Chip,
+  Button,
+  Tooltip,
+  Menu,
+  MenuItem,
+  Divider
+} from "@mui/material";
+
+// Logo ITEAM - URL corrigée
+const ITEAM_LOGO = "https://ui-avatars.com/api/?name=ITEAM&background=e53935&color=fff&size=40";
+
+export default function StudentLayout() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [notifications, setNotifications] = useState([]);
+  const [liveSessions, setLiveSessions] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [anchorEl, setAnchorEl] = useState(null);
+  const [userClasses, setUserClasses] = useState([]);
+
+  useEffect(() => {
+    if (user) {
+      loadUserData();
+      loadLiveSessions();
+      loadNotifications();
+    }
+  }, [user]);
+
+  const loadUserData = async () => {
+    try {
+      // Charger les classes de l'étudiant
+      const userRes = await api.get('/accounts/me/');
+      if (userRes.data.user?.enrolled_classes) {
+        setUserClasses(userRes.data.user.enrolled_classes);
+      }
+    } catch (error) {
+      console.error("Erreur chargement données utilisateur:", error);
+    }
+  };
+
+  const loadLiveSessions = async () => {
+    try {
+      const res = await api.get('/live/sessions/active/');
+      setLiveSessions(res.data || []);
+    } catch (error) {
+      console.error("Erreur chargement sessions live:", error);
+      // Données simulées
+      setLiveSessions([
+        { id: 1, title: "Algorithmique Avancée", teacher: "Dr. Smith", subject: "Algorithmique", isActive: true },
+      ]);
+    }
+  };
+
+  const loadNotifications = async () => {
+    try {
+      const res = await api.get('/notifications/unread/');
+      setNotifications(res.data || []);
+      setUnreadCount(res.data?.length || 0);
+    } catch (error) {
+      console.error("Erreur chargement notifications:", error);
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    toast.success("Déconnexion réussie !");
+    navigate("/login");
+  };
+
+  const handleMenuOpen = (event) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const menuItems = [
+    { 
+      path: "/student/dashboard", 
+      label: "Tableau de bord", 
+      icon: <DashboardIcon />,
+      exact: true
+    },
+    { 
+      path: "/student/classes", 
+      label: "Mes classes", 
+      icon: <ClassIcon />,
+      badge: userClasses.length
+    },
+    { 
+      path: "/student/courses", 
+      label: "Mes cours", 
+      icon: <BookIcon /> 
+    },
+    { 
+      path: "/student/tests", 
+      label: "Tests & Examens", 
+      icon: <QuizIcon /> 
+    },
+    { 
+      path: "/student/schedule", 
+      label: "Emploi du temps", 
+      icon: <ScheduleIcon /> 
+    },
+    { 
+      path: "/student/live-sessions", 
+      label: "Sessions Live", 
+      icon: <VideoCallIcon />,
+      badge: liveSessions.filter(s => s.isActive).length
+    },
+    { 
+      path: "/student/chat", 
+      label: "Messagerie", 
+      icon: <ChatIcon />,
+      badge: unreadCount
+    },
+    { 
+      path: "/student/resources", 
+      label: "Ressources", 
+      icon: <FolderIcon /> 
+    },
+  ];
+
+  const activeSession = liveSessions.find(s => s.isActive);
+
+  const drawerWidth = 280;
+
+  const drawer = (
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Header Sidebar */}
+      <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
+        <Box display="flex" alignItems="center" gap={2}>
+          <Avatar 
+            sx={{ bgcolor: '#e53935', width: 50, height: 50 }}
+          >
+            ITEAM
+          </Avatar>
+          <Box>
+            <Typography variant="h6" fontWeight="bold" color="#e53935">
+              ITEAM LMS
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Espace Étudiant
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+
+      {/* Informations étudiant */}
+      <Box sx={{ p: 2, bgcolor: 'rgba(229, 57, 53, 0.05)', m: 2, borderRadius: 2 }}>
+        <Box display="flex" alignItems="center" gap={2}>
+          <Avatar sx={{ bgcolor: '#e53935' }}>
+            {user?.first_name?.[0] || user?.username?.[0] || 'E'}
+          </Avatar>
+          <Box>
+            <Typography variant="subtitle2" fontWeight="600">
+              {user?.first_name} {user?.last_name}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Étudiant
+            </Typography>
+          </Box>
+        </Box>
+        {userClasses.length > 0 && (
+          <Chip 
+            label={`Classe: ${userClasses[0]?.name || 'Non assigné'}`}
+            size="small"
+            sx={{ mt: 1, fontSize: '0.7rem' }}
+          />
+        )}
+      </Box>
+
+      {/* Session Live Active */}
+      {activeSession && (
+        <Box sx={{ mx: 2, mb: 2 }}>
+          <Button
+            fullWidth
+            variant="contained"
+            startIcon={<VideoCallIcon />}
+            onClick={() => navigate(`/live-session-teams/${activeSession.id}`)}
+            sx={{
+              background: 'linear-gradient(135deg, #e53935 0%, #c62828 100%)',
+              color: 'white',
+              borderRadius: 2,
+              py: 1,
+              '&:hover': {
+                background: 'linear-gradient(135deg, #c62828 0%, #b71c1c 100%)'
+              }
+            }}
+          >
+            <Box textAlign="left" width="100%">
+              <Typography variant="caption" display="block">
+                Session en cours
+              </Typography>
+              <Typography variant="body2" fontWeight="600" noWrap>
+                {activeSession.subject}
+              </Typography>
+            </Box>
+          </Button>
+        </Box>
+      )}
+
+      {/* Menu */}
+      <List sx={{ flex: 1, px: 2 }}>
+        {menuItems.map((item) => (
+          <ListItem
+            key={item.path}
+            button={true} // CORRECTION ICI : ajouter ={true}
+            component={Link}
+            to={item.path}
+            selected={location.pathname === item.path}
+            sx={{
+              borderRadius: 2,
+              mb: 1,
+              '&.Mui-selected': {
+                backgroundColor: 'rgba(229, 57, 53, 0.1)',
+                color: '#e53935',
+                '&:hover': {
+                  backgroundColor: 'rgba(229, 57, 53, 0.15)',
+                },
+                '& .MuiListItemIcon-root': {
+                  color: '#e53935',
+                },
+              },
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: 40 }}>
+              {item.badge ? (
+                <Badge badgeContent={item.badge} color="error">
+                  {item.icon}
+                </Badge>
+              ) : (
+                item.icon
+              )}
+            </ListItemIcon>
+            <ListItemText primary={item.label} />
+          </ListItem>
+        ))}
+      </List>
+
+      {/* Footer Sidebar */}
+      <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
+        <Button
+          fullWidth
+          startIcon={<LogoutIcon />}
+          onClick={handleLogout}
+          sx={{
+            justifyContent: 'flex-start',
+            color: 'text.secondary',
+            '&:hover': {
+              color: '#e53935',
+            }
+          }}
+        >
+          Déconnexion
+        </Button>
+      </Box>
+    </Box>
+  );
+
+  return (
+    <Box sx={{ display: 'flex', height: '100vh' }}>
+      {/* AppBar */}
+      <AppBar 
+        position="fixed" 
+        sx={{ 
+          zIndex: (theme) => theme.zIndex.drawer + 1,
+          backgroundColor: '#e53935',
+          boxShadow: 'none',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+        }}
+      >
+        <Toolbar>
+          <IconButton
+            color="inherit"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            edge="start"
+            sx={{ mr: 2 }}
+          >
+            {sidebarOpen ? <ChevronLeftIcon /> : <MenuIcon />}
+          </IconButton>
+
+          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
+            ITEAM University - Plateforme Éducative
+          </Typography>
+
+          {/* Notifications */}
+          <Tooltip title="Notifications">
+            <IconButton 
+              color="inherit"
+              onClick={() => navigate('/student/chat')}
+            >
+              <Badge badgeContent={unreadCount} color="error">
+                <NotificationsIcon />
+              </Badge>
+            </IconButton>
+          </Tooltip>
+
+          {/* User Menu */}
+          <Box sx={{ ml: 2 }}>
+            <Button
+              onClick={handleMenuOpen}
+              startIcon={
+                <Avatar sx={{ width: 32, height: 32, bgcolor: 'white', color: '#e53935' }}>
+                  {user?.first_name?.[0] || user?.username?.[0] || 'E'}
+                </Avatar>
+              }
+              sx={{ color: 'white', textTransform: 'none' }}
+            >
+              <Box textAlign="left">
+                <Typography variant="body2" fontWeight="600">
+                  {user?.first_name} {user?.last_name}
+                </Typography>
+                <Typography variant="caption" display="block">
+                  Étudiant
+                </Typography>
+              </Box>
+            </Button>
+            <Menu
+              anchorEl={anchorEl}
+              open={Boolean(anchorEl)}
+              onClose={handleMenuClose}
+              PaperProps={{
+                sx: {
+                  mt: 1,
+                  minWidth: 200,
+                }
+              }}
+            >
+              <MenuItem onClick={() => { navigate('/student/dashboard'); handleMenuClose(); }}>
+                <ListItemIcon>
+                  <DashboardIcon fontSize="small" />
+                </ListItemIcon>
+                Tableau de bord
+              </MenuItem>
+              <MenuItem onClick={() => { navigate('/student/profile'); handleMenuClose(); }}>
+                <ListItemIcon>
+                  <DescriptionIcon fontSize="small" />
+                </ListItemIcon>
+                Mon profil
+              </MenuItem>
+              <Divider />
+              <MenuItem onClick={handleLogout}>
+                <ListItemIcon>
+                  <LogoutIcon fontSize="small" />
+                </ListItemIcon>
+                Déconnexion
+              </MenuItem>
+            </Menu>
+          </Box>
+        </Toolbar>
+      </AppBar>
+
+      {/* Drawer */}
+      <Drawer
+        variant="persistent"
+        open={sidebarOpen}
+        sx={{
+          width: drawerWidth,
+          flexShrink: 0,
+          '& .MuiDrawer-paper': {
+            width: drawerWidth,
+            boxSizing: 'border-box',
+            borderRight: '1px solid rgba(0, 0, 0, 0.12)',
+          },
+        }}
+      >
+        {drawer}
+      </Drawer>
+
+      {/* Main Content */}
+      <Box
+        component="main"
+        sx={{
+          flexGrow: 1,
+          p: 3,
+          width: `calc(100% - ${sidebarOpen ? drawerWidth : 0}px)`,
+          transition: 'width 0.3s',
+          backgroundColor: '#f8f9fa',
+          minHeight: '100vh',
+          overflow: 'auto'
+        }}
+      >
+        <Toolbar /> {/* Espace pour l'AppBar */}
+        
+        {/* Quick Actions Bar */}
+        <Box sx={{ mb: 4 }}>
+          <Box display="flex" gap={2} flexWrap="wrap">
+            <Button
+              variant="outlined"
+              startIcon={<ScheduleIcon />}
+              onClick={() => navigate('/student/schedule')}
+              sx={{ borderRadius: 2 }}
+            >
+              Voir mon emploi du temps
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<VideoCallIcon />}
+              onClick={() => navigate('/student/live-sessions')}
+              sx={{ 
+                borderRadius: 2,
+                background: 'linear-gradient(135deg, #e53935 0%, #c62828 100%)'
+              }}
+            >
+              Sessions Live
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<ChatIcon />}
+              onClick={() => navigate('/student/chat')}
+              sx={{ borderRadius: 2 }}
+            >
+              Messagerie
+            </Button>
+            {activeSession && (
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={<VideoCallIcon />}
+                onClick={() => navigate(`/live-session-teams/${activeSession.id}`)}
+                sx={{ borderRadius: 2 }}
+              >
+                Rejoindre la session
+              </Button>
+            )}
+          </Box>
+        </Box>
+
+        {/* Page Content */}
+        <Outlet />
+      </Box>
+    </Box>
+  );
+}

@@ -1,0 +1,2156 @@
+src/components/
+
+common /
+
+button.jsx 
+
+import React from "react";
+import "../../styles/button.css";
+
+export default function Button({ children, onClick, type = "button", className = "" }) {
+  return (
+    <button type={type} onClick={onClick} className={`btn ${className}`}>
+      {children}
+    </button>
+  );
+}
+
+card.jsx   
+
+import React from "react";
+import "../../styles/card.css";
+
+export default function Card({ children, className = "" }) {
+  return <div className={`card ${className}`}>{children}</div>;
+}
+
+components/layout/
+
+Header.jsx 
+
+import React from "react";
+import { Link } from "react-router-dom";
+import logo from "../assets/logo.png";
+import "../styles/general.css";
+
+export default function Header() {
+  return (
+    <header className="header">
+      <div className="logo">
+        <img src={logo} alt="Logo LMS" />
+      </div>
+      <nav>
+        <Link to="/">Accueil</Link>
+        <Link to="/login">Connexion</Link>
+        <Link to="/signup">Inscription</Link>
+      </nav>
+    </header>
+  );
+}
+
+Navbar.jsx  
+
+import React from "react";
+import { Link } from "react-router-dom";
+import "../../styles/navbar.css";
+
+export default function Navbar() {
+  return (
+    <nav className="navbar">
+      <div className="logo">
+        <Link to="/">LMS</Link>
+      </div>
+      <div className="nav-links">
+        <Link to="/login">Login</Link>
+        <Link to="/signup">Signup</Link>
+      </div>
+    </nav>
+  );
+}
+
+Sidebar.jsx  
+
+import React from "react";
+import { Link } from "react-router-dom";
+import "../styles/dashboard.css";
+
+export default function Sidebar({ role }) {
+  return (
+    <aside className="sidebar">
+      {role === "admin" && (
+        <>
+          <Link to="/admin/dashboard">Dashboard</Link>
+          <Link to="/admin/manage-users">Gestion Utilisateurs</Link>
+          <Link to="/admin/manage-classes">Gestion Classes</Link>
+          <Link to="/admin/manage-subjects">Gestion Matières</Link>
+          <Link to="/admin/notifications">Notifications</Link>
+        </>
+      )}
+      {role === "teacher" && (
+        <>
+          <Link to="/teacher/dashboard">Dashboard</Link>
+          <Link to="/teacher/my-classes">Mes Classes</Link>
+          <Link to="/teacher/live-session">Live Session</Link>
+          <Link to="/teacher/upload-course">Cours</Link>
+          <Link to="/teacher/upload-test">Tests</Link>
+        </>
+      )}
+      {role === "student" && (
+        <>
+          <Link to="/student/dashboard">Dashboard</Link>
+          <Link to="/student/my-classes">Mes Classes</Link>
+          <Link to="/student/view-courses">Cours</Link>
+          <Link to="/student/view-tests">Tests</Link>
+        </>
+      )}
+    </aside>
+  );
+}
+
+
+components/ui/
+
+ProtectedRoute.jsx
+
+import React, { useContext } from "react";
+import { Navigate } from "react-router-dom";
+import { AuthContext } from "../../context/AuthContext";
+
+export default function ProtectedRoute({ role, children }) {
+  const { user } = useContext(AuthContext);
+
+  if (!user) return <Navigate to="/login" />;
+  if (role && user.role !== role) return <Navigate to="/" />;
+  return children;
+}
+
+
+src/context
+
+AuthContext.jsx
+
+
+import { createContext, useState, useEffect } from "react";
+
+export const AuthContext = createContext();
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState({
+    access: localStorage.getItem("access") || null,
+    refresh: localStorage.getItem("refresh") || null,
+    role: localStorage.getItem("role") || null,
+  });
+
+  const login = (access, refresh, role) => {
+    setUser({ access, refresh, role });
+    localStorage.setItem("access", access);
+    localStorage.setItem("refresh", refresh);
+    localStorage.setItem("role", role);
+  };
+
+  const logout = () => {
+    setUser({ access: null, refresh: null, role: null });
+    localStorage.removeItem("access");
+    localStorage.removeItem("refresh");
+    localStorage.removeItem("role");
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+
+src/pages/auth 
+
+Login.jsx
+
+ import { useState, useContext } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import "../../styles/auth.css";
+import Logo from "../../assets/logo.png";
+import { AuthContext } from "../../context/AuthContext";
+
+export default function Login() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const navigate = useNavigate();
+  const { login } = useContext(AuthContext);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/accounts/login/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.detail || JSON.stringify(data));
+        return;
+      }
+
+      const data = await res.json();
+      // data: { access, refresh, role }
+      localStorage.setItem("access", data.access);
+      localStorage.setItem("refresh", data.refresh);
+      localStorage.setItem("role", data.role || "");
+      // use context to set user
+      login(data.access, data.refresh, data.role);
+
+      if (data.role === "superadmin" || data.role === "admin") {
+        navigate("/admin/dashboard");
+      } else if (data.role === "teacher") {
+        navigate("/teacher/dashboard");
+      } else {
+        navigate("/user/dashboard");
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Erreur serveur ou réseau");
+    }
+  };
+
+  return (
+    <div className="auth-page">
+      <div className="auth-card">
+        <img src={Logo} alt="Logo" className="logo-auth" />
+        <h1>Se connecter</h1>
+
+        <form onSubmit={handleSubmit}>
+          <label>Email</label>
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+
+          <label>Mot de passe</label>
+          <input
+            type="password"
+            placeholder="Mot de passe"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+
+          <button type="submit">Connexion</button>
+          {error && <p className="error">{error}</p>}
+        </form>
+
+        <div className="auth-links">
+          <Link to="/signup">Pas de compte ? Créer un compte</Link>
+          <Link to="/reset-password">Mot de passe oublié ?</Link>
+          <Link to="/">Retour à l'accueil</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+ResetPassword.jsx
+
+
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import "../../styles/auth.css";
+
+export default function ResetPassword() {
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const navigate = useNavigate();
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    // Ici tu peux appeler l'API Django pour reset password
+    setMessage("Un email de réinitialisation a été envoyé");
+  };
+
+  return (
+    <div className="auth-page">
+      <div className="auth-card">
+        <h1>Réinitialiser le mot de passe</h1>
+        <form onSubmit={handleSubmit}>
+          <input 
+            type="email" 
+            placeholder="Email" 
+            value={email} 
+            onChange={e => setEmail(e.target.value)} 
+            required 
+          />
+          <button type="submit">Envoyer</button>
+          {message && <p className="success">{message}</p>}
+        </form>
+
+        <p style={{marginTop:"15px"}}>
+          Se souvenir du mot de passe ? <Link to="/login" style={{color:"#7b5cf6", textDecoration:"none"}}>Se connecter</Link>
+        </p>
+        <p>
+          Retour à <Link to="/" style={{color:"#7b5cf6", textDecoration:"none"}}>l'accueil</Link>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+
+signup.jsx
+
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import "../../styles/auth.css";
+import Logo from "../../assets/logo.png";
+
+export default function Signup() {
+  const [formData, setFormData] = useState({
+    username: "",
+    email: "",
+    password: "",
+    role: "student",
+    specialty: "",
+  });
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const navigate = useNavigate();
+
+  const handleChange = (e) =>
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (formData.role === "admin") {
+      setError("La création d'un compte admin est réservée au super admin.");
+      return;
+    }
+
+    if (formData.role === "teacher" && !formData.specialty) {
+      setError("Veuillez choisir votre spécialité.");
+      return;
+    }
+
+    try {
+      // Ici appeler ton API backend
+      console.log(formData);
+      setSuccess("Compte créé avec succès !");
+      setTimeout(() => navigate("/login"), 1500);
+    } catch (err) {
+      setError("Erreur lors de la création du compte");
+    }
+  };
+
+  return (
+    <div className="auth-page">
+      <div className="auth-card">
+        <img src={Logo} alt="Iteam Logo" className="logo-auth" />
+        <h1>Créer un compte</h1>
+
+        <form onSubmit={handleSubmit}>
+          <label>Nom d'utilisateur</label>
+          <input
+            type="text"
+            name="username"
+            placeholder="Nom d'utilisateur"
+            value={formData.username}
+            onChange={handleChange}
+            required
+          />
+
+          <label>Email</label>
+          <input
+            type="email"
+            name="email"
+            placeholder="Email"
+            value={formData.email}
+            onChange={handleChange}
+            required
+          />
+
+          <label>Mot de passe</label>
+          <input
+            type="password"
+            name="password"
+            placeholder="Mot de passe"
+            value={formData.password}
+            onChange={handleChange}
+            required
+          />
+
+          <label>Rôle</label>
+          <select
+            name="role"
+            value={formData.role}
+            onChange={handleChange}
+          >
+            <option value="student">Étudiant</option>
+            <option value="teacher">Enseignant</option>
+          </select>
+
+          {formData.role === "teacher" && (
+            <>
+              <label>Spécialité</label>
+              <select
+                name="specialty"
+                value={formData.specialty}
+                onChange={handleChange}
+                required
+              >
+                <option value="">Sélectionnez votre spécialité</option>
+                <option value="Math">Math</option>
+                <option value="Proba">Probabilité</option>
+                <option value="Algo">Algorithme</option>
+              </select>
+            </>
+          )}
+
+          <button type="submit">S'inscrire</button>
+          {success && <p className="success">{success}</p>}
+          {error && <p className="error">{error}</p>}
+        </form>
+
+        <div className="auth-links">
+          <Link to="/login">Déjà un compte ? Se connecter</Link>
+          <Link to="/">Retour à l'accueil</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+src/pages/admin
+
+AdminCoursesManage.jsx
+
+import React, { useEffect, useState } from "react";
+import { getAllCourses, createCourse, deleteCourse } from "../../services/admin";
+import "../../styles/courses.css";
+
+export default function AdminCourses() {
+  const [courses, setCourses] = useState([]);
+  const [title, setTitle] = useState("");
+
+  useEffect(() => {
+    const fetchCourses = async () => {
+      const data = await getAllCourses();
+      setCourses(data);
+    };
+    fetchCourses();
+  }, []);
+
+  const handleCreate = async () => {
+    const newCourse = await createCourse({ title });
+    setCourses([...courses, newCourse]);
+    setTitle("");
+  };
+
+  const handleDelete = async (id) => {
+    if (window.confirm("Supprimer ce cours ?")) {
+      await deleteCourse(id);
+      setCourses(courses.filter(c => c.id !== id));
+    }
+  };
+
+  return (
+    <div className="courses-page">
+      <h1>Gérer les Cours</h1>
+      <div>
+        <input type="text" placeholder="Titre du cours" value={title} onChange={e => setTitle(e.target.value)} />
+        <button onClick={handleCreate}>Créer</button>
+      </div>
+      <div className="courses-list">
+        {courses.map(course => (
+          <div key={course.id} className="course-card">
+            <h2>{course.title}</h2>
+            <button onClick={() => handleDelete(course.id)}>Supprimer</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+AdminDashboard.jsx
+
+import React, { useEffect, useState } from "react";
+import { getAdminStats } from "../../services/admin";
+import { Link } from "react-router-dom";
+import "../../styles/dashboard.css";
+
+export default function AdminDashboard() {
+  const [stats, setStats] = useState({
+    users: 0,
+    teachers: 0,
+    courses: 0,
+  });
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      const data = await getAdminStats();
+      setStats(data);
+    };
+    fetchStats();
+  }, []);
+
+  return (
+    <div className="dashboard-page">
+      <h1>Dashboard Admin</h1>
+      <div className="dashboard-cards">
+        <div className="card">Utilisateurs : {stats.users}</div>
+        <div className="card">Enseignants : {stats.teachers}</div>
+        <div className="card">Cours : {stats.courses}</div>
+      </div>
+      <div className="dashboard-actions">
+        <Link to="/admin/users" className="btn btn-primary">Gérer Utilisateurs</Link>
+        <Link to="/admin/teachers" className="btn btn-primary">Gérer Enseignants</Link>
+        <Link to="/admin/courses" className="btn btn-primary">Gérer Cours</Link>
+        <Link to="/admin/settings" className="btn btn-secondary">Paramètres</Link>
+      </div>
+    </div>
+  );
+}
+
+AdminSettings.jsx
+
+import React, { useState, useEffect } from "react";
+import { getSettings, updateSettings } from "../../services/admin";
+import "../../styles/dashboard.css";
+
+export default function AdminSettings() {
+  const [settings, setSettings] = useState({ siteName: "", supportEmail: "" });
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const data = await getSettings();
+      setSettings(data);
+    };
+    fetchSettings();
+  }, []);
+
+  const handleChange = (e) => setSettings({ ...settings, [e.target.name]: e.target.value });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    await updateSettings(settings);
+    alert("Paramètres mis à jour !");
+  };
+
+  return (
+    <div className="dashboard-page">
+      <h1>Paramètres du site</h1>
+      <form onSubmit={handleSubmit}>
+        <div>
+          <label>Nom du site</label>
+          <input name="siteName" value={settings.siteName} onChange={handleChange} />
+        </div>
+        <div>
+          <label>Email support</label>
+          <input name="supportEmail" value={settings.supportEmail} onChange={handleChange} />
+        </div>
+        <button type="submit">Mettre à jour</button>
+      </form>
+    </div>
+  );
+}
+
+
+
+ManageClasses.jsx
+
+import React, { useEffect, useState } from "react";
+import { getAllClasses, createClass, addStudentToClass, getSubjectsByClass } from "../../services/classes";
+import "../../styles/classes.css";
+
+export default function ManageClasses() {
+  const [classes, setClasses] = useState([]);
+  const [newClass, setNewClass] = useState({ name: "", maxStudents: 30 });
+
+  useEffect(() => {
+    fetchClasses();
+  }, []);
+
+  const fetchClasses = async () => {
+    const data = await getAllClasses();
+    setClasses(data);
+  };
+
+  const handleCreateClass = async () => {
+    if(newClass.name.trim() === "") return alert("Nom de classe requis");
+    const res = await createClass(newClass);
+    if(res) fetchClasses();
+  };
+
+  return (
+    <div className="classes-page">
+      <h1>Gestion des Classes</h1>
+      <div className="create-class">
+        <input type="text" placeholder="Nom de la classe" value={newClass.name} onChange={e => setNewClass({...newClass, name: e.target.value})} />
+        <button className="btn-primary" onClick={handleCreateClass}>Créer</button>
+      </div>
+
+      <div className="classes-list">
+        {classes.map(c => (
+          <div key={c.id} className="class-card">
+            <h2>{c.name}</h2>
+            <p>Étudiants : {c.students.length}/{c.maxStudents}</p>
+            {c.students.length >= c.maxStudents && <span className="full-class">Classe pleine</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+ManageSubjects.jsx
+
+
+import React, { useEffect, useState } from "react";
+import { getAllCourses, createCourse } from "../../services/admin";
+import "../../styles/dashboard.css";
+
+export default function ManageSubjects() {
+  const [subjects, setSubjects] = useState([]);
+  const [newSubject, setNewSubject] = useState({ title: "", teacherId: "" });
+  const [teachers, setTeachers] = useState([]);
+
+  useEffect(() => {
+    fetchSubjects();
+    fetchTeachers();
+  }, []);
+
+  const fetchSubjects = async () => {
+    const data = await getAllCourses();
+    setSubjects(data);
+  };
+
+  const fetchTeachers = async () => {
+    const res = await fetch("/accounts/teachers/"); // ou service API admin
+    const data = await res.json();
+    setTeachers(data);
+  };
+
+  const handleCreate = async () => {
+    if(!newSubject.title || !newSubject.teacherId) return alert("Tous les champs sont requis");
+    await createCourse(newSubject); 
+    setNewSubject({ title:"", teacherId:"" });
+    fetchSubjects();
+  };
+
+  return (
+    <div className="manage-subjects-page">
+      <h1>Gestion des Matières</h1>
+      <div className="create-subject">
+        <input placeholder="Nom de la matière" value={newSubject.title} onChange={e => setNewSubject({...newSubject, title:e.target.value})} />
+        <select value={newSubject.teacherId} onChange={e => setNewSubject({...newSubject, teacherId:e.target.value})}>
+          <option value="">Sélectionner un enseignant</option>
+          {teachers.map(t => <option key={t.id} value={t.id}>{t.username}</option>)}
+        </select>
+        <button className="btn-primary" onClick={handleCreate}>Ajouter</button>
+      </div>
+      <div className="subjects-list">
+        {subjects.map(s => (
+          <div key={s.id} className="subject-card">
+            <p>{s.title} - {s.teacher ? s.teacher.username : "Aucun enseignant"}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+
+ManageUsers.jsx
+
+
+import React, { useEffect, useState } from "react";
+import { getAllUsers, deleteUser, updateUser } from "../../services/admin";
+import "../../styles/dashboard.css";
+
+export default function UsersManage() {
+  const [users, setUsers] = useState([]);
+  const [editingUser, setEditingUser] = useState(null);
+  const [username, setUsername] = useState("");
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      const data = await getAllUsers();
+      setUsers(data);
+    };
+    fetchUsers();
+  }, []);
+
+  const handleDelete = async (id) => {
+    if (window.confirm("Supprimer cet utilisateur ?")) {
+      await deleteUser(id);
+      setUsers(users.filter(u => u.id !== id));
+    }
+  };
+
+  const handleEdit = (user) => {
+    setEditingUser(user.id);
+    setUsername(user.username);
+  };
+
+  const handleUpdate = async () => {
+    await updateUser(editingUser, { username });
+    setUsers(users.map(u => u.id === editingUser ? { ...u, username } : u));
+    setEditingUser(null);
+  };
+
+  return (
+    <div className="dashboard-page">
+      <h1>Gérer les Utilisateurs</h1>
+      <ul className="user-list">
+        {users.map(user => (
+          <li key={user.id}>
+            {editingUser === user.id ? (
+              <>
+                <input value={username} onChange={e => setUsername(e.target.value)} />
+                <button onClick={handleUpdate}>Valider</button>
+                <button onClick={() => setEditingUser(null)}>Annuler</button>
+              </>
+            ) : (
+              <>
+                {user.username} ({user.email})
+                <button onClick={() => handleEdit(user)}>Modifier</button>
+                <button onClick={() => handleDelete(user.id)}>Supprimer</button>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+
+Notifications.jsx
+
+import React, { useEffect, useState } from "react";
+import { getNotifications } from "../../services/admin";
+import "../../styles/dashboard.css";
+
+export default function Notifications() {
+  const [notifications, setNotifications] = useState([]);
+
+  useEffect(() => { fetchNotifications(); }, []);
+
+  const fetchNotifications = async () => {
+    const data = await getNotifications();
+    setNotifications(data);
+  };
+
+  return (
+    <div className="notifications-page">
+      <h1>Notifications</h1>
+      <ul>
+        {notifications.map(n => <li key={n.id}>{n.message}</li>)}
+      </ul>
+    </div>
+  );
+}
+
+
+
+TeachersManage.jsx
+
+import React, { useEffect, useState } from "react";
+import { getAllTeachers, deleteTeacher, updateTeacher } from "../../services/admin";
+import "../../styles/dashboard.css";
+
+export default function TeachersManage() {
+  const [teachers, setTeachers] = useState([]);
+  const [editingTeacher, setEditingTeacher] = useState(null);
+  const [name, setName] = useState("");
+
+  useEffect(() => {
+    const fetchTeachers = async () => {
+      const data = await getAllTeachers();
+      setTeachers(data);
+    };
+    fetchTeachers();
+  }, []);
+
+  const handleDelete = async (id) => {
+    if (window.confirm("Supprimer cet enseignant ?")) {
+      await deleteTeacher(id);
+      setTeachers(teachers.filter(t => t.id !== id));
+    }
+  };
+
+  const handleEdit = (teacher) => {
+    setEditingTeacher(teacher.id);
+    setName(teacher.username);
+  };
+
+  const handleUpdate = async () => {
+    await updateTeacher(editingTeacher, { username: name });
+    setTeachers(teachers.map(t => t.id === editingTeacher ? { ...t, username: name } : t));
+    setEditingTeacher(null);
+  };
+
+  return (
+    <div className="dashboard-page">
+      <h1>Gérer les Enseignants</h1>
+      <ul className="teacher-list">
+        {teachers.map(t => (
+          <li key={t.id}>
+            {editingTeacher === t.id ? (
+              <>
+                <input value={name} onChange={e => setName(e.target.value)} />
+                <button onClick={handleUpdate}>Valider</button>
+                <button onClick={() => setEditingTeacher(null)}>Annuler</button>
+              </>
+            ) : (
+              <>
+                {t.username} ({t.email})
+                <button onClick={() => handleEdit(t)}>Modifier</button>
+                <button onClick={() => handleDelete(t.id)}>Supprimer</button>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+
+
+src/pages/Home
+
+Home.jsx
+
+// Home.jsx
+import React, { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import Logo from "../../assets/logo.png";
+import "./Home.css";
+
+// --- Home page
+export default function Home() {
+  const [animate, setAnimate] = useState(true);
+  useEffect(() => {
+    const timer = setTimeout(() => setAnimate(false), 2500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (animate) {
+    return (
+      <div className="home-logo-animation">
+        <img src={Logo} alt="Iteam Logo" className="logo-animate" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="home-page">
+      <header className="home-header">
+        <img src={Logo} alt="Iteam Logo" className="logo-home" />
+      </header>
+      <main className="home-content">
+        <h1>Bienvenue sur la plateforme LMS Iteam</h1>
+        <p>Connectez-vous ou créez un compte pour commencer.</p>
+        <div className="home-buttons">
+          <Link to="/login" className="btn btn-primary">Se connecter</Link>
+          <Link to="/signup" className="btn btn-secondary">S'inscrire</Link>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+
+src/pages/student
+
+MyClasses.jsx
+
+
+import React, { useEffect, useState } from "react";
+import { getAllClasses } from "../../services/classes";
+import "../../styles/classes.css";
+
+export default function MyClasses() {
+  const [classes, setClasses] = useState([]);
+
+  useEffect(() => {
+    const fetchClasses = async () => {
+      const data = await getAllClasses(); // Backend filtre par étudiant
+      setClasses(data);
+    };
+    fetchClasses();
+  }, []);
+
+  return (
+    <div className="student-classes">
+      <h1>Mes Classes</h1>
+      <div className="classes-list">
+        {classes.map(c => (
+          <div key={c.id} className="class-card">
+            <h2>{c.name}</h2>
+            <p>Matières :</p>
+            <ul>
+              {c.subjects.map(s => <li key={s.id}>{s.name} ({s.teacher.username})</li>)}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+StudentDashboard.jsx
+
+import React from "react";
+import { Link } from "react-router-dom";
+import "../../styles/dashboard.css";
+
+export default function StudentDashboard() {
+  return (
+    <div className="dashboard-page">
+      <h1>Dashboard Étudiant</h1>
+      <div className="dashboard-cards">
+        <Link to="/student/courses" className="card">Mes Cours</Link>
+        <Link to="/student/tests" className="card">Mes Tests</Link>
+        <Link to="/student/profile" className="card">Mon Profil</Link>
+      </div>
+    </div>
+  );
+}
+
+
+
+
+StudentProfile.jsx
+
+
+
+
+
+import React, { useEffect, useState } from "react";
+import { getStudentProfile, updateStudentProfile } from "../../services/user";
+import "../../styles/profile.css";
+
+export default function StudentProfile() {
+  const [profile, setProfile] = useState({
+    username: "",
+    email: "",
+    specialty: "",
+    bio: "",
+    photo: "",
+  });
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      const data = await getStudentProfile();
+      setProfile(data);
+    };
+    fetchProfile();
+  }, []);
+
+  const handleChange = (e) => {
+    const { name, value, files } = e.target;
+    if (name === "photo") setProfile({ ...profile, photo: files[0] });
+    else setProfile({ ...profile, [name]: value });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const formData = new FormData();
+    formData.append("username", profile.username);
+    formData.append("email", profile.email);
+    formData.append("specialty", profile.specialty);
+    formData.append("bio", profile.bio);
+    if (profile.photo) formData.append("photo", profile.photo);
+
+    await updateStudentProfile(formData);
+    alert("Profil mis à jour !");
+  };
+
+  return (
+    <div className="profile-page">
+      <h1>Mon Profil Étudiant</h1>
+      <form onSubmit={handleSubmit} className="profile-form">
+        <div className="form-group">
+          <label>Nom</label>
+          <input type="text" name="username" value={profile.username} onChange={handleChange} required />
+        </div>
+        <div className="form-group">
+          <label>Email</label>
+          <input type="email" name="email" value={profile.email} onChange={handleChange} required />
+        </div>
+        <div className="form-group">
+          <label>Spécialité</label>
+          <input type="text" name="specialty" value={profile.specialty} onChange={handleChange} />
+        </div>
+        <div className="form-group">
+          <label>Bio</label>
+          <textarea name="bio" value={profile.bio} onChange={handleChange}></textarea>
+        </div>
+        <div className="form-group">
+          <label>Photo de profil</label>
+          <input type="file" name="photo" onChange={handleChange} />
+        </div>
+        <button type="submit">Mettre à jour</button>
+      </form>
+    </div>
+  );
+}
+
+
+ViewCourses.jsx
+
+
+
+import React, { useEffect, useState } from "react";
+import { getAllClasses } from "../../services/classes";
+import "../../styles/classes.css";
+
+export default function ViewCourses() {
+  const [courses, setCourses] = useState([]);
+
+  useEffect(() => {
+    const fetchCourses = async () => {
+      const data = await getAllClasses(); // Backend filtre par étudiant
+      setCourses(data);
+    };
+    fetchCourses();
+  }, []);
+
+  return (
+    <div className="student-courses-page">
+      <h1>Mes Cours</h1>
+      <div className="courses-list">
+        {courses.map(course => (
+          <div key={course.id} className="course-card">
+            <h2>{course.name}</h2>
+            <p>Matières :</p>
+            <ul>
+              {course.subjects.map(s => (
+                <li key={s.id}>{s.name} ({s.teacher.username})</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+
+ViewTests.jsx
+
+
+import React, { useEffect, useState } from "react";
+import { getUserHistory } from "../../services/user";
+import "../../styles/classes.css";
+
+export default function ViewTests() {
+  const [tests, setTests] = useState([]);
+
+  useEffect(() => { fetchTests(); }, []);
+
+  const fetchTests = async () => {
+    const data = await getUserHistory();
+    setTests(data);
+  };
+
+  return (
+    <div className="tests-page">
+      <h1>Mes Tests</h1>
+      <div className="tests-list">
+        {tests.map(t => (
+          <div key={t.id} className="test-card">
+            <h2>{t.title}</h2>
+            <p>Note : {t.score ? t.score : "Non noté"}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+
+src/pages/teacher
+
+CoursesManage.jsx
+
+import React, { useEffect, useState } from "react";
+import { getTeacherCourses, createCourse } from "../../services/teacher";
+import "../../styles/courses.css";
+
+export default function CoursesManage() {
+  const [courses, setCourses] = useState([]);
+  const [title, setTitle] = useState("");
+
+  useEffect(() => {
+    const fetchCourses = async () => {
+      const data = await getTeacherCourses();
+      setCourses(data);
+    };
+    fetchCourses();
+  }, []);
+
+  const handleCreate = async () => {
+    const newCourse = await createCourse({ title });
+    setCourses([...courses, newCourse]);
+    setTitle("");
+  };
+
+  return (
+    <div className="courses-page">
+      <h1>Gérer mes cours</h1>
+      <div>
+        <input type="text" placeholder="Titre du cours" value={title} onChange={e => setTitle(e.target.value)} />
+        <button onClick={handleCreate}>Créer</button>
+      </div>
+      <div className="courses-list">
+        {courses.map(course => (
+          <div key={course.id} className="course-card">
+            <h2>{course.title}</h2>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+
+
+
+LiveSession.jsx
+
+
+import React, { useState } from "react";
+import { startLiveSession, endLiveSession } from "../../services/live";
+import "../../styles/dashboard.css";
+
+export default function LiveSession() {
+  const [isLive, setIsLive] = useState(false);
+
+  const handleStart = async () => {
+    await startLiveSession();
+    setIsLive(true);
+  };
+
+  const handleEnd = async () => {
+    await endLiveSession();
+    setIsLive(false);
+  };
+
+  return (
+    <div className="live-session-page">
+      <h1>Session en ligne</h1>
+      {isLive ? (
+        <button className="btn-danger" onClick={handleEnd}>Arrêter la session</button>
+      ) : (
+        <button className="btn-primary" onClick={handleStart}>Démarrer la session</button>
+      )}
+      <div className="video-container">
+        {/* WebRTC ou intégration Jitsi/Zoom */}
+      </div>
+      <div className="chat-box">
+        {/* Chat texte en direct */}
+      </div>
+    </div>
+  );
+}
+ 
+
+Profile.jsx
+
+
+import React, { useEffect, useState } from "react";
+import { getTeacherProfile, updateTeacherProfile } from "../../services/teacher";
+import "../../styles/profile.css";
+
+export default function Profile() {
+  const [profile, setProfile] = useState({
+    username: "",
+    email: "",
+    subject: "",
+    bio: "",
+    photo: "",
+  });
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      const data = await getTeacherProfile();
+      setProfile(data);
+    };
+    fetchProfile();
+  }, []);
+
+  const handleChange = (e) => {
+    const { name, value, files } = e.target;
+    if (name === "photo") {
+      setProfile({ ...profile, photo: files[0] });
+    } else {
+      setProfile({ ...profile, [name]: value });
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const formData = new FormData();
+    formData.append("username", profile.username);
+    formData.append("email", profile.email);
+    formData.append("subject", profile.subject);
+    formData.append("bio", profile.bio);
+    if (profile.photo) formData.append("photo", profile.photo);
+
+    await updateTeacherProfile(formData);
+    alert("Profil enseignant mis à jour !");
+  };
+
+  return (
+    <div className="profile-page">
+      <h1>Mon Profil Enseignant</h1>
+      <form onSubmit={handleSubmit} className="profile-form">
+        <div className="form-group">
+          <label>Nom</label>
+          <input type="text" name="username" value={profile.username} onChange={handleChange} placeholder="Nom complet" required />
+        </div>
+        <div className="form-group">
+          <label>Email</label>
+          <input type="email" name="email" value={profile.email} onChange={handleChange} placeholder="Email" required />
+        </div>
+        <div className="form-group">
+          <label>Matière</label>
+          <input type="text" name="subject" value={profile.subject} onChange={handleChange} placeholder="Votre matière" />
+        </div>
+        <div className="form-group">
+          <label>Bio</label>
+          <textarea name="bio" value={profile.bio} onChange={handleChange} placeholder="Courte description" />
+        </div>
+        <div className="form-group">
+          <label>Photo de profil</label>
+          <input type="file" name="photo" accept="image/*" onChange={handleChange} />
+        </div>
+        <button type="submit">Mettre à jour</button>
+      </form>
+    </div>
+  );
+}
+
+
+TeacherDashboard.jsx
+
+
+import React from "react";
+import { Link } from "react-router-dom";
+import "../../styles/dashboard.css";
+
+export default function TeacherDashboard() {
+  return (
+    <div className="dashboard-page">
+      <h1>Dashboard Enseignant</h1>
+      <div className="dashboard-cards">
+        <Link to="/teacher/courses-manage" className="card">Gérer les cours</Link>
+        <Link to="/teacher/upload-test" className="card">Ajouter un Test</Link>
+        <Link to="/teacher/live-session" className="card">Session en ligne</Link>
+        <Link to="/teacher/students" className="card">Voir les étudiants</Link>
+        <Link to="/teacher/profile" className="card">Mon Profil</Link>
+      </div>
+    </div>
+  );
+}
+
+
+
+UploadTest.jsx
+
+
+
+import React, { useState, useEffect } from "react";
+import { createTest, getTeacherCourses } from "../../services/teacher";
+import "../../styles/dashboard.css";
+
+export default function UploadTest() {
+  const [test, setTest] = useState({ title:"", courseId:"", file:null });
+  const [courses, setCourses] = useState([]);
+
+  useEffect(() => {
+    const fetchCourses = async () => {
+      const data = await getTeacherCourses();
+      setCourses(data);
+    };
+    fetchCourses();
+  }, []);
+
+  const handleUpload = async () => {
+    if(!test.title || !test.courseId || !test.file) return alert("Tous les champs requis");
+    const formData = new FormData();
+    formData.append("title", test.title);
+    formData.append("course", test.courseId);
+    formData.append("file", test.file);
+    await createTest(formData);
+    setTest({ title:"", courseId:"", file:null });
+    alert("Test ajouté");
+  };
+
+  return (
+    <div className="upload-test-page">
+      <h1>Ajouter un Test</h1>
+      <input placeholder="Titre" value={test.title} onChange={e=>setTest({...test, title:e.target.value})} />
+      <select value={test.courseId} onChange={e=>setTest({...test, courseId:e.target.value})}>
+        <option value="">Sélectionner un cours</option>
+        {courses.map(course => (
+          <option key={course.id} value={course.id}>{course.title}</option>
+        ))}
+      </select>
+      <input type="file" onChange={e=>setTest({...test, file:e.target.files[0]})} />
+      <button className="btn-primary" onClick={handleUpload}>Ajouter</button>
+    </div>
+  );
+}
+
+
+
+
+ViewStudents.jsx
+
+
+
+import React, { useEffect, useState } from "react";
+import { getCourseStudents } from "../../services/teacher";
+import "../../styles/classes.css";
+
+export default function ViewStudents() {
+  const [students, setStudents] = useState([]);
+  
+  useEffect(() => {
+    const fetchStudents = async () => {
+      const data = await getCourseStudents(); // Backend filtre par cours de l’enseignant
+      setStudents(data);
+    };
+    fetchStudents();
+  }, []);
+
+  return (
+    <div className="teacher-students-page">
+      <h1>Mes Étudiants</h1>
+      <div className="students-list">
+        {students.map(student => (
+          <div key={student.id} className="student-card">
+            <h2>{student.username}</h2>
+            <p>Email : {student.email}</p>
+            <p>Spécialité : {student.specialty}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+src/routes
+
+Router.jsx
+
+// src/routes/Router.jsx
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Login from "../pages/auth/Login";
+import Signup from "../pages/auth/Signup";
+import Home from "../pages/Home/Home";
+import NotFound from "../pages/NotFound/NotFound";
+
+import ProtectedRoute from "../components/ui/ProtectedRoute";
+
+// STUDENT
+import StudentDashboard from "../pages/student/StudentDashboard";
+import MyClasses from "../pages/student/MyClasses";
+import ViewCourses from "../pages/student/ViewCourses";
+import ViewTests from "../pages/student/ViewTests";
+import StudentProfile from "../pages/student/StudentProfile";
+
+// TEACHER
+import TeacherDashboard from "../pages/teacher/TeacherDashboard";
+import TeacherCourses from "../pages/teacher/CoursesManage";
+import TeacherProfile from "../pages/teacher/Profile";
+
+// ADMIN
+import AdminDashboard from "../pages/admin/AdminDashboard";
+import UsersManage from "../pages/admin/ManageUsers";
+import TeachersManage from "../pages/admin/TeachersManage";
+import AdminCourses from "../pages/admin/CoursesManage";
+import AdminSettings from "../pages/admin/Settings";
+
+export default function AppRouter() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* Public */}
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+
+        {/* Student Routes */}
+        <Route
+          path="/student/dashboard"
+          element={
+            <ProtectedRoute role="student">
+              <StudentDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/classes"
+          element={
+            <ProtectedRoute role="student">
+              <MyClasses />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/courses"
+          element={
+            <ProtectedRoute role="student">
+              <ViewCourses />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/tests"
+          element={
+            <ProtectedRoute role="student">
+              <ViewTests />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/profile"
+          element={
+            <ProtectedRoute role="student">
+              <StudentProfile />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Teacher Routes */}
+        <Route
+          path="/teacher/dashboard"
+          element={
+            <ProtectedRoute role="teacher">
+              <TeacherDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/teacher/courses"
+          element={
+            <ProtectedRoute role="teacher">
+              <TeacherCourses />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/teacher/profile"
+          element={
+            <ProtectedRoute role="teacher">
+              <TeacherProfile />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Admin Routes */}
+        <Route
+          path="/admin/dashboard"
+          element={
+            <ProtectedRoute role="admin">
+              <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/users"
+          element={
+            <ProtectedRoute role="admin">
+              <UsersManage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/teachers"
+          element={
+            <ProtectedRoute role="admin">
+              <TeachersManage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/courses"
+          element={
+            <ProtectedRoute role="admin">
+              <AdminCourses />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/settings"
+          element={
+            <ProtectedRoute role="admin">
+              <AdminSettings />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Fallback */}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+
+
+src/services
+
+admin.js
+
+import api from "./api";
+
+// --- Dashboard Stats ---
+export async function getStats() {
+  try {
+    const response = await api.get("/admin/stats/");
+    return response.data;
+  } catch (error) {
+    console.error("Erreur récupération stats admin :", error);
+    return { totalUsers: 0, totalTeachers: 0, totalCourses: 0 };
+  }
+}
+
+// --- Users Management ---
+export async function getAllUsers() {
+  try {
+    const response = await api.get("/accounts/users/");
+    return response.data;
+  } catch (error) {
+    console.error("Erreur récupération utilisateurs :", error);
+    return [];
+  }
+}
+
+export async function createUser(userData) {
+  try {
+    const response = await api.post("/accounts/create-user/", userData);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur création utilisateur :", error);
+    return null;
+  }
+}
+
+export async function updateUser(userId, userData) {
+  try {
+    const response = await api.put(`/accounts/${userId}/update/`, userData);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur mise à jour utilisateur :", error);
+    return null;
+  }
+}
+
+export async function deleteUser(userId) {
+  try {
+    const response = await api.delete(`/accounts/${userId}/delete/`);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur suppression utilisateur :", error);
+    return null;
+  }
+}
+
+// --- Teachers Management ---
+export async function getAllTeachers() {
+  try {
+    const response = await api.get("/accounts/teachers/");
+    return response.data;
+  } catch (error) {
+    console.error("Erreur récupération enseignants :", error);
+    return [];
+  }
+}
+
+export async function createTeacher(teacherData) {
+  try {
+    const response = await api.post("/accounts/create-teacher/", teacherData);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur création enseignant :", error);
+    return null;
+  }
+}
+
+export async function updateTeacher(teacherId, teacherData) {
+  try {
+    const response = await api.put(`/accounts/teacher/${teacherId}/update/`, teacherData);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur mise à jour enseignant :", error);
+    return null;
+  }
+}
+
+export async function deleteTeacher(teacherId) {
+  try {
+    const response = await api.delete(`/accounts/teacher/${teacherId}/delete/`);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur suppression enseignant :", error);
+    return null;
+  }
+}
+
+// --- Courses Management ---
+export async function getAllCourses() {
+  try {
+    const response = await api.get("/courses/");
+    return response.data;
+  } catch (error) {
+    console.error("Erreur récupération cours :", error);
+    return [];
+  }
+}
+
+export async function createCourse(courseData) {
+  try {
+    const response = await api.post("/courses/", courseData);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur création cours :", error);
+    return null;
+  }
+}
+
+export async function updateCourse(courseId, courseData) {
+  try {
+    const response = await api.put(`/courses/${courseId}/`, courseData);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur mise à jour cours :", error);
+    return null;
+  }
+}
+
+export async function deleteCourse(courseId) {
+  try {
+    const response = await api.delete(`/courses/${courseId}/`);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur suppression cours :", error);
+    return null;
+  }
+}
+
+// --- Admin Settings ---
+export async function getAdminSettings() {
+  try {
+    const response = await api.get("/admin/settings/");
+    return response.data;
+  } catch (error) {
+    console.error("Erreur récupération paramètres admin :", error);
+    return null;
+  }
+}
+
+export async function updateAdminSettings(settingsData) {
+  try {
+    const response = await api.put("/admin/settings/", settingsData);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur mise à jour paramètres admin :", error);
+    return null;
+  }
+}
+
+
+
+api.js
+
+import axios from "axios";
+
+const api = axios.create({
+  baseURL: "http://127.0.0.1:8000/api", // backend
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+// Interceptor: utilise localStorage 'access'
+api.interceptors.request.use((config) => {
+  const access = localStorage.getItem("access");
+  if (access) config.headers.Authorization = `Bearer ${access}`;
+  return config;
+});
+
+export default api;
+
+
+auth.js 
+
+
+// src/services/auth.js
+import axios from "./axiosConfig";
+
+export async function loginRequest(email, password) {
+  const res = await axios.post("/accounts/login/", { email, password });
+  return res.data; // {token, user:{id, role, email}}
+}
+
+export async function signupRequest(data) {
+  const res = await axios.post("/accounts/register/", data);
+  return res.data;
+}
+
+export async function getProfileMe() {
+  const res = await axios.get("/accounts/me/");
+  return res.data;
+}
+
+
+
+axiosConfig.js
+
+
+// src/services/axiosConfig.js
+import axios from "axios";
+
+const instance = axios.create({
+  baseURL: "http://127.0.0.1:8000/api",
+});
+
+instance.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+export default instance;
+
+
+
+classes.js
+
+import api from "./api";
+
+// --- Classes ---
+export async function getClasses() {
+  try {
+    const res = await api.get("/classes/");
+    return res.data;
+  } catch (error) {
+    console.error("Erreur récupération classes :", error);
+    return [];
+  }
+}
+
+export async function createClass(classData) {
+  try {
+    const res = await api.post("/classes/", classData);
+    return res.data;
+  } catch (error) {
+    console.error("Erreur création classe :", error);
+    return null;
+  }
+}
+
+export async function addStudentToClass(classId, studentId) {
+  try {
+    const res = await api.post(`/classes/${classId}/add-student/`, { studentId });
+    return res.data;
+  } catch (error) {
+    console.error("Erreur ajout étudiant à la classe :", error);
+    return null;
+  }
+}
+
+// --- Matières ---
+export async function getSubjects() {
+  try {
+    const res = await api.get("/classes/subjects/");
+    return res.data;
+  } catch (error) {
+    console.error("Erreur récupération matières :", error);
+    return [];
+  }
+}
+
+export async function assignTeacherToSubject(subjectId, teacherId) {
+  try {
+    const res = await api.post(`/classes/subjects/${subjectId}/assign-teacher/`, { teacherId });
+    return res.data;
+  } catch (error) {
+    console.error("Erreur affectation enseignant :", error);
+    return null;
+  }
+}
+
+
+
+live.js
+
+import api from "./api";
+
+// --- Live Sessions ---
+export async function startLiveSession(courseId) {
+  try {
+    const res = await api.post("/live/start/", { courseId });
+    return res.data;
+  } catch (error) {
+    console.error("Erreur démarrage session live :", error);
+    return null;
+  }
+}
+
+export async function endLiveSession(sessionId) {
+  try {
+    const res = await api.post(`/live/${sessionId}/end/`);
+    return res.data;
+  } catch (error) {
+    console.error("Erreur fin session live :", error);
+    return null;
+  }
+}
+
+export async function getLiveSessions() {
+  try {
+    const res = await api.get("/live/");
+    return res.data;
+  } catch (error) {
+    console.error("Erreur récupération sessions live :", error);
+    return [];
+  }
+}
+
+
+
+
+
+notifications.js
+
+
+
+import api from "./api";
+
+export async function getNotifications() {
+  try {
+    const res = await api.get("/notifications/");
+    return res.data;
+  } catch (error) {
+    console.error("Erreur récupération notifications :", error);
+    return [];
+  }
+}
+
+
+
+teacher.js 
+
+import api from "./api";
+
+// --- Teacher Courses ---
+export async function getTeacherCourses() {
+  try {
+    const response = await api.get("/courses/teacher-courses/");
+    return response.data;
+  } catch (error) {
+    console.error("Erreur récupération des cours enseignant :", error);
+    return [];
+  }
+}
+
+export async function createCourse(courseData) {
+  try {
+    const response = await api.post("/courses/create/", courseData);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur création de cours :", error);
+    return null;
+  }
+}
+
+export async function updateCourse(courseId, courseData) {
+  try {
+    const response = await api.put(`/courses/${courseId}/update/`, courseData);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur mise à jour cours :", error);
+    return null;
+  }
+}
+
+export async function deleteCourse(courseId) {
+  try {
+    const response = await api.delete(`/courses/${courseId}/delete/`);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur suppression cours :", error);
+    return null;
+  }
+}
+
+// --- Teacher Profile ---
+export async function getTeacherProfile() {
+  try {
+    const response = await api.get("/accounts/teacher-profile/");
+    return response.data;
+  } catch (error) {
+    console.error("Erreur récupération profil enseignant :", error);
+    return { username: "", email: "" };
+  }
+}
+
+export async function updateTeacherProfile(profileData) {
+  try {
+    const response = await api.put("/accounts/teacher-profile/update/", profileData);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur mise à jour profil enseignant :", error);
+    return null;
+  }
+}
+
+
+
+user.js  
+
+
+import api from "./api";
+
+// --- User Courses ---
+export async function getUserCourses() {
+  try {
+    const response = await api.get("/courses/my-courses/");
+    return response.data;
+  } catch (error) {
+    console.error("Erreur récupération des cours :", error);
+    return [];
+  }
+}
+
+// --- User Profile ---
+export async function getUserProfile() {
+  try {
+    const response = await api.get("/accounts/profile/");
+    return response.data;
+  } catch (error) {
+    console.error("Erreur récupération profil :", error);
+    return { username: "", email: "" };
+  }
+}
+
+export async function updateUserProfile(profileData) {
+  try {
+    const response = await api.put("/accounts/profile/update/", profileData);
+    return response.data;
+  } catch (error) {
+    console.error("Erreur mise à jour profil :", error);
+    return null;
+  }
+}
+
+// --- User History ---
+export async function getUserHistory() {
+  try {
+    const response = await api.get("/lms_sessions/my-history/");
+    return response.data;
+  } catch (error) {
+    console.error("Erreur récupération de l'historique :", error);
+    return [];
+  }
+}
+
+
+
+
+
+
+
+en global en a 
+
+App.css
+
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+
+
+App.jsx
+
+
+import AppRouter from "./routes/Router";
+
+export default function App() {
+  return <AppRouter />;
+}
+
+
+index.css
+
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+}
+
+
+main.jsx
+
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App.jsx";
+import "./styles/global.css";
+import { AuthProvider } from "./context/AuthContext.jsx";
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  </React.StrictMode>
+);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

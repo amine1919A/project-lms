@@ -1,0 +1,29 @@
+from accounts.models import CustomUser
+
+# On récupère ton admin (même s’il existe déjà)
+try:
+    admin = CustomUser.objects.get(email="admin@iteam.university")
+    print("Admin trouvé ? on répare le mot de passe")
+except CustomUser.DoesNotExist:
+    admin = CustomUser.objects.create(
+        email="admin@iteam.university",
+        username="admin",
+        first_name="Super",
+        last_name="Admin",
+        role="admin"
+    )
+    print("Admin recréé")
+
+# ON FORCE LE MOT DE PASSE PROPREMENT
+admin.set_password("Admin2025@iteam")
+admin.is_staff = True
+admin.is_superuser = False  # ou True si tu veux superadmin
+admin.approved = True
+admin.role = "admin"  # ou "superadmin" si tu veux
+admin.save()
+
+print("MOT DE PASSE RÉINITIALISÉ AVEC SUCCÈS !")
+print("? Email: admin@iteam.university")
+print("? Mot de passe: Admin2025@iteam")
+print("TU PEUX TE CONNECTER MAINTENANT")
+exit()

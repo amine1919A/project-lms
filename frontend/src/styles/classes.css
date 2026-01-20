@@ -1,0 +1,4 @@
+.classes-page { padding:20px; }
+.create-class input { padding:8px; margin-right:10px; border-radius:6px; border:1px solid #ccc; }
+.class-card { background:#fff; padding:15px; margin:10px 0; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
+.full-class { color:red; font-weight:bold; }

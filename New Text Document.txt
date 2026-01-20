@@ -1,0 +1,75 @@
+ok donner table complete des comptes
+Voici la table complète de TOUS les comptes créés dans votre système :
+
+?? TABLE COMPLÈTE DES COMPTES ITEAM UNIVERSITY
+?? ADMINISTRATEURS (2)
+ID	Email	Username	Prénom	Nom	Rôle	Spécialité	Mot de passe	Approuvé
+1	superadmin@iteam.university	superadmin	Super	Admin	Super Admin	? Aucune	SuperAdmin2025	? Oui
+2	admin@iteam.university	admin	Admin	Principal	Admin	? Aucune	Admin2025	? Oui
+????? ENSEIGNANTS (5) - AVEC SPÉCIALITÉ
+ID	Email	Username	Prénom	Nom	Rôle	Spécialité	Mot de passe	Approuvé
+3	prof.cyber@iteam.university	profcyber	Ahmed	Benali	Teacher	??? Cybersécurité	Prof2025	? Oui
+4	prof.ai@iteam.university	profai	Nadia	Said	Teacher	?? Intelligence Artificielle	Prof2025	? Oui
+5	prof.reseau@iteam.university	profreseau	Leila	Mourad	Teacher	?? Réseaux et Cloud	Prof2025	? Oui
+6	prof.web@iteam.university	profweb	Karim	El Amrani	Teacher	?? Développement Web	Prof2025	? Oui
+7	prof.math@iteam.university	profmath	Youssef	Hassani	Teacher	?? Mathématiques Appliquées	Prof2025	? Oui
+?? ÉTUDIANTS (20) - EN ATTENTE D'APPROBATION
+ID	Email	Username	Prénom	Nom	Rôle	Spécialité	Mot de passe	Approuvé
+8	etudiant1@iteam.university	etudiant1	Youssef	Hassani	Student	? Aucune	Etudiant1@2025	? Non
+9	etudiant2@iteam.university	etudiant2	Sara	Mansouri	Student	? Aucune	Etudiant2@2025	? Non
+10	etudiant3@iteam.university	etudiant3	Omar	Berrada	Student	? Aucune	Etudiant3@2025	? Non
+11	etudiant4@iteam.university	etudiant4	Lina	Chraibi	Student	? Aucune	Etudiant4@2025	? Non
+12	etudiant5@iteam.university	etudiant5	Mehdi	Tazi	Student	? Aucune	Etudiant5@2025	? Non
+13	etudiant6@iteam.university	etudiant6	Noura	El Fassi	Student	? Aucune	Etudiant6@2025	? Non
+14	etudiant7@iteam.university	etudiant7	Hamza	Rahmani	Student	? Aucune	Etudiant7@2025	? Non
+15	etudiant8@iteam.university	etudiant8	Zineb	Cherkaoui	Student	? Aucune	Etudiant8@2025	? Non
+16	etudiant9@iteam.university	etudiant9	Anas	Boukhari	Student	? Aucune	Etudiant9@2025	? Non
+17	etudiant10@iteam.university	etudiant10	Salma	Amrani	Student	? Aucune	Etudiant10@2025	? Non
+18	etudiant11@iteam.university	etudiant11	Karim	Bennani	Student	? Aucune	Etudiant11@2025	? Non
+19	etudiant12@iteam.university	etudiant12	Fatima	Alaoui	Student	? Aucune	Etudiant12@2025	? Non
+20	etudiant13@iteam.university	etudiant13	Hicham	Khattabi	Student	? Aucune	Etudiant13@2025	? Non
+21	etudiant14@iteam.university	etudiant14	Nadia	Bouzidi	Student	? Aucune	Etudiant14@2025	? Non
+22	etudiant15@iteam.university	etudiant15	Rachid	El Yazidi	Student	? Aucune	Etudiant15@2025	? Non
+23	etudiant16@iteam.university	etudiant16	Samira	Benjelloun	Student	? Aucune	Etudiant16@2025	? Non
+24	etudiant17@iteam.university	etudiant17	Khalid	Moujahid	Student	? Aucune	Etudiant17@2025	? Non
+25	etudiant18@iteam.university	etudiant18	Asmae	Rhouzlane	Student	? Aucune	Etudiant18@2025	? Non
+26	etudiant19@iteam.university	etudiant19	Hassan	Sefrioui	Student	? Aucune	Etudiant19@2025	? Non
+27	etudiant20@iteam.university	etudiant20	Nawal	Lahlou	Student	? Aucune	Etudiant20@2025	? Non
+?? RÉCAPITULATIF STATISTIQUE
+Catégorie	Nombre	Pourcentage
+Total Comptes	27	100%
+Super Admins	1	3.7%
+Admins	1	3.7%
+Enseignants	5	18.5%
+Étudiants	20	74.1%
+Approuvés	7	25.9%
+En attente	20	74.1%
+Avec spécialité	5	18.5%
+Sans spécialité	22	81.5%
+?? SPÉCIALITÉS DES ENSEIGNANTS
+Spécialité	Enseignant	Email
+Cybersécurité	Ahmed Benali	prof.cyber@iteam.university
+Intelligence Artificielle	Nadia Said	prof.ai@iteam.university
+Réseaux et Cloud	Leila Mourad	prof.reseau@iteam.university
+Développement Web	Karim El Amrani	prof.web@iteam.university
+Mathématiques Appliquées	Youssef Hassani	prof.math@iteam.university
+?? MOTS DE PASSE PAR DÉFAUT
+Rôle	Format mot de passe	Exemple
+Super Admin	SuperAdmin2025	SuperAdmin2025
+Admin	Admin2025	Admin2025
+Teacher	Prof2025	Prof2025
+Student	EtudiantX@2025	Etudiant1@2025
+?? CLASSES DISPONIBLES POUR ASSIGNATION
+ID	Nom	Capacité	Étudiants assignés
+1	L3-CS-2025	30	0
+2	L3-AI-2025	25	0
+3	L3-NET-2025	30	0
+4	M1-CS-2025	20	0
+5	M1-AI-2025	20	0
+?? MATIÈRES PAR CLASSE
+Classe	Matières (Spécialité)
+L3-CS-2025	Cryptographie, Sécurité Réseau, Éthique Hacking (Cybersécurité)
+L3-AI-2025	Machine Learning, Deep Learning, Vision par Ordinateur (IA)
+L3-NET-2025	Réseaux TCP/IP, Cloud Computing, Virtualisation (Réseaux)
+M1-CS-2025	Sécurité Avancée, Forensique Numérique (Cybersécurité)
+M1-AI-2025	NLP Avancé, Robotique (IA)

@@ -1,0 +1,4267 @@
+premier aap   s'appel accounts   deja tavailler avec succe
+ 
+
+# backend/accounts/models.py
+from django.contrib.auth.models import AbstractUser
+from django.db import models
+from django.core.exceptions import ValidationError
+
+class CustomUser(AbstractUser):
+    ROLE_CHOICES = (
+        ('superadmin', 'Super Admin'),
+        ('admin', 'Admin'),
+        ('teacher', 'Teacher'),
+        ('student', 'Student'),
+    )
+    
+    role = models.CharField(max_length=15, choices=ROLE_CHOICES, default='student')
+    approved = models.BooleanField(default=False)
+    
+    # IMPORTANT: Utiliser une référence string pour éviter l'import circulaire
+    specialty = models.ForeignKey(
+        'classes.Specialty',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='users'
+    )
+    
+    email = models.EmailField(unique=True)
+    
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['username']
+
+    class Meta:
+        verbose_name = 'Utilisateur'
+        verbose_name_plural = 'Utilisateurs'
+
+    def __str__(self):
+        return f"{self.email} ({self.role})"
+    
+    def get_full_name(self):
+        full_name = f"{self.first_name} {self.last_name}"
+        return full_name.strip() if full_name.strip() else self.username
+    
+    def clean(self):
+        """Validation personnalisée"""
+        if self.role == 'teacher' and not self.specialty:
+            raise ValidationError({
+                'specialty': 'Les enseignants doivent avoir une spécialité.'
+            })
+        
+        if self.role == 'student' and self.specialty:
+            self.specialty = None
+    
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# backend/accounts/permissions.py
+from rest_framework.permissions import BasePermission
+
+class IsSuperAdmin(BasePermission):
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and getattr(request.user, "role", None) == "superadmin"
+        )
+
+class IsAdmin(BasePermission):
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and getattr(request.user, "role", None) in ["admin", "superadmin"]
+        )
+
+class IsTeacher(BasePermission):
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and getattr(request.user, "role", None) == "teacher"
+        )
+
+class IsStudent(BasePermission):
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and getattr(request.user, "role", None) == "student"
+        )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# backend/accounts/serializers.py ? VERSION FINALE CORRIGÉE À 1000%
+from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from classes.models import Specialty  # ON UTILISE CELUI DE CLASSES
+
+User = get_user_model()
+
+
+class UserSerializer(serializers.ModelSerializer):
+    specialty = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = (
+            "id", "username", "email", "first_name", "last_name",
+            "role", "approved", "specialty", "is_staff", "is_superuser"
+        )
+        read_only_fields = ("id", "approved", "is_staff", "is_superuser")
+
+
+# accounts/serializers.py ? REMPLACE LE CHAMP specialty DANS RegisterSerializer PAR ÇA :
+
+class RegisterSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
+    
+    # Spécialité peut être soit un ID soit un nom
+    specialty = serializers.CharField(
+        required=False, 
+        allow_blank=True, 
+        allow_null=True,
+        help_text="Pour les enseignants: ID ou nom de la spécialité"
+    )
+
+    class Meta:
+        model = User
+        fields = ("username", "email", "password", "first_name", "last_name", "role", "specialty")
+        extra_kwargs = {
+            'specialty': {'required': False}
+        }
+
+    def validate(self, attrs):
+        role = attrs.get("role")
+        specialty_input = attrs.get("specialty")
+
+        # Validation pour les enseignants
+        if role == "teacher":
+            if not specialty_input:
+                raise serializers.ValidationError({
+                    "specialty": "La spécialité est obligatoire pour les enseignants."
+                })
+            
+            try:
+                # Essayer de trouver par ID
+                if isinstance(specialty_input, int) or (isinstance(specialty_input, str) and specialty_input.isdigit()):
+                    specialty_obj = Specialty.objects.get(id=int(specialty_input))
+                else:
+                    # Essayer de trouver par nom
+                    specialty_obj = Specialty.objects.get(name__iexact=specialty_input.strip())
+                
+                attrs["specialty"] = specialty_obj
+                
+            except Specialty.DoesNotExist:
+                # Afficher les spécialités disponibles
+                specialties = Specialty.objects.values('id', 'name')
+                available = ", ".join([f"{s['id']}:{s['name']}" for s in specialties])
+                raise serializers.ValidationError({
+                    "specialty": f"Spécialité '{specialty_input}' introuvable. Disponibles: {available}"
+                })
+                
+        elif role == "student":
+            # Les étudiants n'ont pas besoin de spécialité
+            attrs["specialty"] = None
+            
+        return attrs
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+        specialty = validated_data.pop("specialty", None)
+
+        user = User(**validated_data)
+        user.set_password(password)
+        
+        # Les enseignants ne sont pas approuvés automatiquement
+        user.approved = False
+        
+        user.save()
+
+        if specialty:
+            user.specialty = specialty
+            user.save()
+
+        return user
+
+
+class AdminCreateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True)
+
+    class Meta:
+        model = User
+        fields = ("username", "email", "password", "role", "first_name", "last_name")
+
+    def validate_role(self, value):
+        if value != "admin":
+            raise serializers.ValidationError("Ce endpoint ne crée que des comptes admin.")
+        return value
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+        user = User(**validated_data)
+        user.set_password(password)
+        user.role = "admin"
+        user.approved = True
+        user.is_staff = True
+        user.is_superuser = False
+        user.save()
+        return user
+
+
+
+
+
+
+
+
+
+
+# backend/accounts/urls.py - MIS À JOUR
+from django.urls import path
+from .views import (
+    RegisterView, ProfileView, ApproveUserView, AdminCreateView, 
+    MyTokenObtainPairView, UserListView, PendingUserListView,
+    TeacherListView, StudentListView, get_users_by_role,
+    get_current_user, change_password, check_username, user_stats
+)
+from rest_framework_simplejwt.views import TokenRefreshView
+
+urlpatterns = [
+    # Authentification
+    path("register/", RegisterView.as_view(), name="register"),
+    path("login/", MyTokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    
+    # Profil
+    path("profile/", ProfileView.as_view(), name="profile"),
+    path("profile/password/", change_password, name="change-password"),
+    path("me/", get_current_user, name="current-user"),
+    
+    # Vérification
+    path("check-username/", check_username, name="check-username"),
+    
+    # Gestion admin
+    path("admin-create/", AdminCreateView.as_view(), name="admin-create"),
+    path("approve/<int:pk>/", ApproveUserView.as_view(), name="approve-user"),
+    
+    # Listes
+    path("users/", UserListView.as_view(), name="users-list"),
+    path("pending/", PendingUserListView.as_view(), name="pending-users"),
+    path("teachers/", TeacherListView.as_view(), name="teachers-list"),
+    path("students/", StudentListView.as_view(), name="students-list"),
+    
+    # API utilitaires
+    path("users/filter/", get_users_by_role, name="users-by-role"),
+    path("stats/", user_stats, name="user-stats"),
+]
+
+
+
+
+
+
+
+
+
+
+
+
+
+# backend/accounts/views.py - VERSION COMPLÈTE CORRIGÉE
+from rest_framework import generics, permissions, status, serializers
+from rest_framework.response import Response
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework.decorators import api_view, permission_classes
+from django.contrib.auth import get_user_model
+from django.db.models import Q
+from classes.models import Class, Subject
+from notifications.models import Notification
+from .serializers import RegisterSerializer, UserSerializer, AdminCreateSerializer
+from .permissions import IsSuperAdmin, IsAdmin, IsTeacher, IsStudent
+
+User = get_user_model()
+
+# ============================================
+# AUTHENTIFICATION ET TOKENS JWT
+# ============================================
+
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        print("?? Validation des identifiants...")
+        
+        # Si on reçoit 'username' mais pas 'email', copier username dans email
+        if 'username' in attrs and 'email' not in attrs:
+            attrs['email'] = attrs['username']
+            print(f"?? Copié username vers email: {attrs['email']}")
+        
+        # Si on reçoit 'email' mais pas 'username', copier email dans username
+        elif 'email' in attrs and 'username' not in attrs:
+            attrs['username'] = attrs['email']
+            print(f"?? Copié email vers username: {attrs['username']}")
+        
+        print(f"?? Données finales: {attrs}")
+        
+        # Continuer avec la validation parente
+        return super().validate(attrs)
+
+class MyTokenObtainPairView(TokenObtainPairView):
+    serializer_class = MyTokenObtainPairSerializer
+    
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        
+        # Pour le débogage
+        print(f"Login attempt for data: {request.data}")
+        
+        return response
+
+# ============================================
+# INSCRIPTION ET PROFIL
+# ============================================
+
+class RegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    serializer_class = RegisterSerializer
+    permission_classes = [permissions.AllowAny]
+    
+    def create(self, request, *args, **kwargs):
+        try:
+            response = super().create(request, *args, **kwargs)
+            
+            # Créer une notification pour l'admin
+            if Notification.objects.exists():  # Si le modèle existe
+                try:
+                    # Trouver les admins
+                    admins = User.objects.filter(role__in=['admin', 'superadmin'], approved=True)
+                    for admin in admins:
+                        Notification.objects.create(
+                            user=admin,
+                            title="Nouvelle inscription",
+                            message=f"Un nouvel utilisateur ({request.data.get('role', 'inconnu')}) s'est inscrit : {request.data.get('username', '')}",
+                            notification_type='info'
+                        )
+                except Exception as e:
+                    print(f"Erreur création notification: {e}")
+            
+            return Response({
+                "success": True,
+                "message": "Inscription réussie ! Votre compte sera activé après approbation par un administrateur.",
+                "data": response.data
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "message": str(e) if str(e) else "Erreur lors de l'inscription"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+class ProfileView(generics.RetrieveUpdateAPIView):
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+    
+    def update(self, request, *args, **kwargs):
+        # Ne pas permettre la modification du rôle ou de l'approbation
+        if 'role' in request.data:
+            request.data.pop('role')
+        if 'approved' in request.data:
+            request.data.pop('approved')
+        if 'is_staff' in request.data:
+            request.data.pop('is_staff')
+        if 'is_superuser' in request.data:
+            request.data.pop('is_superuser')
+        
+        return super().update(request, *args, **kwargs)
+
+# ============================================
+# GESTION ADMIN DES UTILISATEURS
+# ============================================
+
+class UserListView(generics.ListAPIView):
+    serializer_class = UserSerializer
+    permission_classes = [IsAdmin | IsSuperAdmin]
+
+    def get_queryset(self):
+        queryset = User.objects.all()
+        
+        # Filtrage par rôle
+        role = self.request.query_params.get('role', None)
+        if role:
+            queryset = queryset.filter(role=role)
+        
+        # Filtrage par statut d'approbation
+        approved = self.request.query_params.get('approved', None)
+        if approved:
+            if approved.lower() == 'true':
+                queryset = queryset.filter(approved=True)
+            elif approved.lower() == 'false':
+                queryset = queryset.filter(approved=False)
+        
+        # Recherche
+        search = self.request.query_params.get('search', None)
+        if search:
+            queryset = queryset.filter(
+                Q(username__icontains=search) |
+                Q(email__icontains=search) |
+                Q(first_name__icontains=search) |
+                Q(last_name__icontains=search)
+            )
+        
+        return queryset.order_by('-date_joined')
+
+class PendingUserListView(generics.ListAPIView):
+    serializer_class = UserSerializer
+    permission_classes = [IsAdmin | IsSuperAdmin]
+
+    def get_queryset(self):
+        return User.objects.filter(approved=False, role__in=['student', 'teacher']).order_by('-date_joined')
+
+class AdminCreateView(generics.CreateAPIView):
+    serializer_class = AdminCreateSerializer
+    permission_classes = [IsSuperAdmin]
+
+class ApproveUserView(generics.UpdateAPIView):
+    permission_classes = [IsAdmin | IsSuperAdmin]
+    queryset = User.objects.all()
+    lookup_field = 'pk'
+
+    def post(self, request, *args, **kwargs):
+        user = self.get_object()
+        action = request.data.get("action", "approve")
+
+        if action == "reject":
+            username = user.username
+            user.delete()
+            
+            # Notification de refus (si possible)
+            try:
+                Notification.objects.create(
+                    user=user,
+                    title="Compte refusé",
+                    message="Votre demande d'inscription a été refusée.",
+                    notification_type='error'
+                )
+            except:
+                pass
+                
+            return Response({
+                "success": True,
+                "message": f"Compte de {username} refusé et supprimé"
+            })
+
+        if user.role == "student":
+            class_id = request.data.get("class_id")
+            if not class_id:
+                return Response({
+                    "success": False,
+                    "message": "class_id requis pour étudiant"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                cls = Class.objects.get(id=class_id)
+                if cls.students.count() >= 30:
+                    return Response({
+                        "success": False,
+                        "message": "Classe pleine (30 étudiants maximum)"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                cls.students.add(user)
+                
+            except Class.DoesNotExist:
+                return Response({
+                    "success": False,
+                    "message": "Classe invalide"
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Approuver l'utilisateur
+        user.approved = True
+        user.save()
+
+        # Notification de bienvenue
+        try:
+            Notification.objects.create(
+                user=user,
+                title="Compte approuvé !",
+                message="Votre compte a été approuvé ! Bienvenue sur ITEAM University !",
+                notification_type='success'
+            )
+        except:
+            pass
+
+        return Response({
+            "success": True,
+            "message": f"{user.username} approuvé avec succès !",
+            "user": UserSerializer(user).data
+        })
+
+# ============================================
+# VIEWS SPÉCIFIQUES PAR RÔLE
+# ============================================
+
+class TeacherListView(generics.ListAPIView):
+    serializer_class = UserSerializer
+    permission_classes = [IsAdmin | IsSuperAdmin]
+    
+    def get_queryset(self):
+        return User.objects.filter(role='teacher', approved=True)
+
+class StudentListView(generics.ListAPIView):
+    serializer_class = UserSerializer
+    permission_classes = [IsAdmin | IsSuperAdmin | IsTeacher]
+    
+    def get_queryset(self):
+        # Les enseignants ne voient que leurs étudiants
+        if self.request.user.role == 'teacher':
+            # Récupérer les classes où l'enseignant a des matières
+            teacher_subjects = Subject.objects.filter(teacher=self.request.user)
+            class_ids = teacher_subjects.values_list('class_assigned', flat=True).distinct()
+            
+            # Récupérer les étudiants de ces classes
+            classes = Class.objects.filter(id__in=class_ids)
+            student_ids = []
+            for cls in classes:
+                student_ids.extend(cls.students.values_list('id', flat=True))
+            
+            return User.objects.filter(id__in=student_ids, role='student', approved=True)
+        
+        # Les admins voient tous les étudiants
+        return User.objects.filter(role='student', approved=True)
+
+# ============================================
+# VIEWS API SIMPLES
+# ============================================
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_users_by_role(request):
+    """
+    Endpoint: GET /api/accounts/users/
+    Params: ?role=student&approved=true
+    Retourne uniquement les utilisateurs filtrés par rôle et statut approuvé
+    """
+    role = request.query_params.get('role')
+    approved = request.query_params.get('approved')
+
+    users = User.objects.all()
+
+    # Filtrage par rôle
+    if role:
+        users = users.filter(role=role)
+    
+    # Filtrage par statut d'approbation
+    if approved:
+        if approved.lower() == 'true':
+            users = users.filter(approved=True)
+        elif approved.lower() == 'false':
+            users = users.filter(approved=False)
+
+    # Pour les enseignants, limiter l'accès
+    if request.user.role == 'teacher':
+        if role == 'student':
+            # Les enseignants ne voient que leurs étudiants
+            teacher_subjects = Subject.objects.filter(teacher=request.user)
+            class_ids = teacher_subjects.values_list('class_assigned', flat=True).distinct()
+            classes = Class.objects.filter(id__in=class_ids)
+            student_ids = []
+            for cls in classes:
+                student_ids.extend(cls.students.values_list('id', flat=True))
+            
+            users = users.filter(id__in=student_ids, role='student')
+        else:
+            # Les enseignants ne peuvent voir que les étudiants
+            return Response({
+                "success": False,
+                "message": "Vous n'avez pas la permission d'accéder à ces données."
+            }, status=status.HTTP_403_FORBIDDEN)
+
+    serializer = UserSerializer(users, many=True)
+    
+    return Response({
+        "success": True,
+        "count": users.count(),
+        "users": serializer.data
+    }, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_current_user(request):
+    """Récupérer les informations de l'utilisateur courant"""
+    serializer = UserSerializer(request.user)
+    return Response({
+        "success": True,
+        "user": serializer.data
+    })
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def change_password(request):
+    """Changer le mot de passe"""
+    user = request.user
+    old_password = request.data.get('old_password')
+    new_password = request.data.get('new_password')
+    
+    if not old_password or not new_password:
+        return Response({
+            "success": False,
+            "message": "Ancien et nouveau mot de passe requis"
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Vérifier l'ancien mot de passe
+    if not user.check_password(old_password):
+        return Response({
+            "success": False,
+            "message": "Ancien mot de passe incorrect"
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Changer le mot de passe
+    user.set_password(new_password)
+    user.save()
+    
+    return Response({
+        "success": True,
+        "message": "Mot de passe changé avec succès"
+    })
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def check_username(request):
+    """Vérifier si un username est disponible"""
+    username = request.query_params.get('username')
+    email = request.query_params.get('email')
+    
+    if username:
+        exists = User.objects.filter(username__iexact=username).exists()
+        return Response({
+            "available": not exists,
+            "message": "Username déjà pris" if exists else "Username disponible"
+        })
+    
+    if email:
+        exists = User.objects.filter(email__iexact=email).exists()
+        return Response({
+            "available": not exists,
+            "message": "Email déjà utilisé" if exists else "Email disponible"
+        })
+    
+    return Response({
+        "success": False,
+        "message": "Paramètre username ou email requis"
+    }, status=status.HTTP_400_BAD_REQUEST)
+
+# ============================================
+# VIEWS POUR LES STATISTIQUES
+# ============================================
+
+@api_view(['GET'])
+@permission_classes([IsAdmin | IsSuperAdmin])
+def user_stats(request):
+    """Statistiques sur les utilisateurs"""
+    total_users = User.objects.count()
+    approved_users = User.objects.filter(approved=True).count()
+    pending_users = User.objects.filter(approved=False).count()
+    
+    role_stats = {}
+    for role_code, role_name in User.ROLE_CHOICES:
+        count = User.objects.filter(role=role_code).count()
+        approved_count = User.objects.filter(role=role_code, approved=True).count()
+        role_stats[role_code] = {
+            'name': role_name,
+            'total': count,
+            'approved': approved_count,
+            'pending': count - approved_count
+        }
+    
+    return Response({
+        "success": True,
+        "stats": {
+            "total_users": total_users,
+            "approved_users": approved_users,
+            "pending_users": pending_users,
+            "by_role": role_stats,
+            "approval_rate": (approved_users / total_users * 100) if total_users > 0 else 0
+        }
+    })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+deuxieme app s'appele classes c'esy pour le cree et stcoker les classes et les ensignient et les etudient  et affecter un classes final   deja travailler avec succee
+
+
+
+
+# backend/classes/models.py
+from django.db import models
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+
+# Utiliser get_user_model() pour éviter les imports circulaires
+User = get_user_model()
+
+class Specialty(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True, default='')
+    
+    class Meta:
+        verbose_name_plural = "Specialties"
+        ordering = ['name']
+    
+    def __str__(self):
+        return self.name
+
+
+class Class(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+    max_students = models.IntegerField(default=30)
+    
+    # CORRECTION : Utiliser get_user_model() directement
+    students = models.ManyToManyField(
+        User,
+        related_name='enrolled_classes',
+        blank=True,
+        # Enlever limit_choices_to car il cause des problèmes avec l'API
+    )
+    
+    class Meta:
+        ordering = ['name']
+        verbose_name_plural = "Classes"
+    
+    def __str__(self):
+        return self.name
+    
+    def student_count(self):
+        """Retourne le nombre d'étudiants approuvés dans la classe"""
+        return self.students.filter(role='student', approved=True).count()
+    
+    def is_full(self):
+        return self.student_count() >= self.max_students
+    
+    def clean(self):
+        """Validation personnalisée"""
+        # S'assurer que le nom est unique
+        if Class.objects.filter(name=self.name).exclude(id=self.id).exists():
+            raise ValidationError(f"Une classe avec le nom '{self.name}' existe déjà.")
+    
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+class Subject(models.Model):
+    name = models.CharField(max_length=100)
+    class_assigned = models.ForeignKey(
+        Class, 
+        on_delete=models.CASCADE, 
+        related_name='subjects'
+    )
+    specialty = models.ForeignKey(
+        Specialty, 
+        on_delete=models.SET_NULL, 
+        null=True,
+        related_name='subjects'
+    )
+    teacher = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='teaching_subjects'
+        # Enlever limit_choices_to pour éviter les problèmes
+    )
+    
+    class Meta:
+        unique_together = ('name', 'class_assigned')
+        ordering = ['name']
+    
+    def __str__(self):
+        return f"{self.name} ({self.class_assigned.name})"
+    
+    def clean(self):
+        """Validation de la cohérence enseignant-spécialité"""
+        if self.teacher and self.teacher.role != 'teacher':
+            raise ValidationError("Seuls les enseignants peuvent être assignés à une matière.")
+        
+        if self.teacher and self.specialty:
+            if self.teacher.specialty and self.teacher.specialty != self.specialty:
+                raise ValidationError(
+                    f"L'enseignant {self.teacher.get_full_name()} est spécialisé en "
+                    f"{self.teacher.specialty.name}, mais cette matière est associée à "
+                    f"{self.specialty.name}."
+                )
+    
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+
+
+
+
+
+
+
+
+
+
+# backend/classes/permissions.py
+from rest_framework.permissions import BasePermission
+
+class IsAdminOrSuperAdmin(BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role in ['admin', 'superadmin']
+
+
+
+
+
+
+
+
+
+
+
+
+# backend/classes/serializers.py - CORRECTION
+from rest_framework import serializers
+from .models import Class, Subject, Specialty
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+
+class StudentInClassSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(source='get_full_name', read_only=True)
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name', 'full_name', 'email', 'approved']
+
+
+class SubjectInClassSerializer(serializers.ModelSerializer):
+    teacher_name = serializers.CharField(source='teacher.get_full_name', read_only=True, allow_null=True)
+    teacher_username = serializers.CharField(source='teacher.username', read_only=True, allow_null=True)
+    specialty_name = serializers.CharField(source='specialty.name', read_only=True, allow_null=True)
+
+    class Meta:
+        model = Subject
+        fields = [
+            'id', 'name', 'teacher', 'teacher_name', 'teacher_username',
+            'specialty', 'specialty_name'
+        ]
+
+
+class ClassSerializer(serializers.ModelSerializer):
+    students_count = serializers.SerializerMethodField()
+    students = StudentInClassSerializer(many=True, read_only=True, source='students.all')
+    subjects = SubjectInClassSerializer(many=True, read_only=True, source='subjects.all')
+    # CORRECTION : Enlever le source='is_full' car le nom du champ est déjà is_full
+    is_full = serializers.BooleanField(read_only=True)  # Enlever source='is_full'
+
+    class Meta:
+        model = Class
+        fields = [
+            'id', 'name', 'max_students',
+            'students_count', 'students', 'subjects', 'is_full'
+        ]
+        read_only_fields = ['students_count', 'students', 'subjects', 'is_full']
+
+    def get_students_count(self, obj):
+        """Retourne le nombre d'étudiants approuvés dans la classe"""
+        return obj.student_count()
+
+
+class SpecialtySerializer(serializers.ModelSerializer):
+    teacher_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Specialty
+        fields = ['id', 'name', 'description', 'teacher_count']
+    
+    def get_teacher_count(self, obj):
+        """Retourne le nombre d'enseignants dans cette spécialité"""
+        return User.objects.filter(role='teacher', specialty=obj).count()
+
+
+class SubjectSerializer(serializers.ModelSerializer):
+    class_name = serializers.CharField(source='class_assigned.name', read_only=True)
+    teacher_name = serializers.CharField(source='teacher.get_full_name', read_only=True, allow_null=True)
+    teacher_username = serializers.CharField(source='teacher.username', read_only=True, allow_null=True)
+    specialty_name = serializers.CharField(source='specialty.name', read_only=True, allow_null=True)
+
+    class Meta:
+        model = Subject
+        fields = [
+            'id', 'name', 'class_assigned', 'class_name',
+            'teacher', 'teacher_name', 'teacher_username',
+            'specialty', 'specialty_name'
+        ]
+
+
+
+
+
+
+
+
+
+
+
+
+
+# backend/classes/urls.py
+from rest_framework.routers import DefaultRouter
+from .views import ClassViewSet, SubjectViewSet, SpecialtyViewSet
+
+router = DefaultRouter()
+router.register(r'classes', ClassViewSet)
+router.register(r'subjects', SubjectViewSet)
+router.register(r'specialties', SpecialtyViewSet)
+
+urlpatterns = router.urls
+
+
+
+
+
+
+
+
+
+
+
+# backend/classes/views.py - VERSION FINALE CORRIGÉE
+from rest_framework import viewsets, status, permissions
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.contrib.auth import get_user_model
+from django.shortcuts import get_object_or_404
+from django.db import transaction
+from .models import Class, Subject, Specialty
+from .serializers import ClassSerializer, SubjectSerializer, SpecialtySerializer
+from accounts.permissions import IsAdmin as IsAdminPermission
+
+User = get_user_model()
+
+
+# ========================================
+# 1. SPÉCIALITÉS ? PUBLIQUE
+# ========================================
+class SpecialtyViewSet(viewsets.ModelViewSet):
+    queryset = Specialty.objects.all().order_by('name')
+    serializer_class = SpecialtySerializer
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [permissions.AllowAny()]
+        return [IsAdminPermission()]
+
+
+# ========================================
+# 2. GESTION DES CLASSES - VERSION CORRIGÉE
+# ========================================
+class ClassViewSet(viewsets.ModelViewSet):
+    queryset = Class.objects.all().prefetch_related('subjects', 'students')
+    serializer_class = ClassSerializer
+    permission_classes = [IsAdminPermission]
+
+    @action(detail=True, methods=['post'], url_path='add-student')
+    def add_student(self, request, pk=None):
+        """Ajouter un étudiant à une classe"""
+        cls = self.get_object()
+        user_id = request.data.get("user_id")
+        
+        if not user_id:
+            return Response(
+                {"detail": "user_id requis", "success": False}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = User.objects.get(pk=user_id, role='student')
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "Étudiant non trouvé", "success": False}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Vérifier si l'étudiant est déjà dans une classe
+        if user.enrolled_classes.exists():
+            current_class = user.enrolled_classes.first()
+            return Response({
+                "detail": f"Cet étudiant est déjà dans la classe '{current_class.name}'",
+                "success": False,
+                "current_class": {
+                    "id": current_class.id,
+                    "name": current_class.name
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Vérifier si la classe est pleine
+        if cls.is_full():
+            return Response({
+                "detail": f"Cette classe est pleine ({cls.max_students} étudiants maximum)",
+                "success": False,
+                "max_students": cls.max_students,
+                "current_count": cls.student_count()
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Ajouter l'étudiant à la classe
+            cls.students.add(user)
+            
+            # Approuver automatiquement l'étudiant
+            if not user.approved:
+                user.approved = True
+                user.save()
+
+            return Response({
+                "detail": f"{user.username} ajouté à {cls.name} avec succès !",
+                "success": True,
+                "student": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "full_name": user.get_full_name(),
+                    "approved": user.approved
+                },
+                "class_info": {
+                    "id": cls.id,
+                    "name": cls.name,
+                    "student_count": cls.student_count(),
+                    "max_students": cls.max_students,
+                    "is_full": cls.is_full()
+                }
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({
+                "detail": f"Erreur lors de l'ajout: {str(e)}",
+                "success": False
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='remove-student')
+    def remove_student(self, request, pk=None):
+        """Retirer un étudiant d'une classe"""
+        cls = self.get_object()
+        user_id = request.data.get("user_id")
+        
+        if not user_id:
+            return Response(
+                {"detail": "user_id requis", "success": False}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = User.objects.get(pk=user_id, role='student')
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "Étudiant non trouvé", "success": False}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Vérifier si l'étudiant est dans cette classe
+        if not cls.students.filter(id=user.id).exists():
+            return Response({
+                "detail": f"Cet étudiant n'est pas dans la classe '{cls.name}'",
+                "success": False
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Retirer l'étudiant de la classe
+            cls.students.remove(user)
+            
+            # Mettre l'étudiant en attente
+            user.approved = False
+            user.save()
+
+            return Response({
+                "detail": f"{user.username} retiré de {cls.name} et mis en attente",
+                "success": True,
+                "student": {
+                    "id": user.id,
+                    "username": user.username,
+                    "approved": user.approved
+                },
+                "class_info": {
+                    "id": cls.id,
+                    "name": cls.name,
+                    "student_count": cls.student_count()
+                }
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({
+                "detail": f"Erreur lors du retrait: {str(e)}",
+                "success": False
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def destroy(self, request, *args, **kwargs):
+        """Supprimer une classe et remettre les étudiants en attente"""
+        cls = self.get_object()
+        class_name = cls.name
+
+        with transaction.atomic():
+            # Récupérer tous les étudiants de la classe
+            students = list(cls.students.filter(role='student'))
+            
+            # Supprimer la classe
+            cls.delete()
+
+            # Remettre tous les étudiants en attente
+            for student in students:
+                student.approved = False
+                student.save()
+
+        return Response(
+            {
+                "detail": f"Classe '{class_name}' supprimée.",
+                "success": True,
+                "students_affected": len(students),
+                "message": f"{len(students)} étudiant(s) remis en attente."
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ========================================
+# 3. GESTION DES MATIÈRES
+# ========================================
+class SubjectViewSet(viewsets.ModelViewSet):
+    queryset = Subject.objects.select_related('teacher', 'class_assigned', 'specialty')
+    serializer_class = SubjectSerializer
+    permission_classes = [IsAdminPermission]
+
+    @action(detail=True, methods=['post'], url_path='assign-teacher')
+    def assign_teacher(self, request, pk=None):
+        subject = self.get_object()
+        teacher_id = request.data.get('teacher_id')
+        if not teacher_id:
+            return Response({"detail": "teacher_id requis", "success": False}, status=400)
+
+        teacher = get_object_or_404(User, pk=teacher_id, role='teacher')
+
+        # Vérification spécialité
+        if subject.specialty and teacher.specialty != subject.specialty:
+            return Response({
+                "detail": f"Spécialité requise : {subject.specialty.name}",
+                "success": False
+            }, status=400)
+
+        old_teacher = subject.teacher
+        subject.teacher = teacher
+        subject.save()
+
+        teacher.approved = True
+        teacher.save()
+
+        # Si l'ancien prof n'enseigne plus nulle part ? désapprouver
+        if old_teacher and old_teacher != teacher:
+            if Subject.objects.filter(teacher=old_teacher).count() == 0:
+                old_teacher.approved = False
+                old_teacher.save()
+
+        return Response({
+            "detail": f"{teacher.username} assigné à {subject.name} avec succès !",
+            "success": True,
+            "subject": {
+                "id": subject.id,
+                "name": subject.name,
+                "teacher_name": teacher.get_full_name()
+            }
+        })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+3eme app live    # backend/live/models.py (nouveau fichier)
+from django.db import models
+from django.utils.crypto import get_random_string
+from accounts.models import CustomUser
+from classes.models import Subject
+
+class LiveSession(models.Model):
+    STATUS_CHOICES = [
+        ('scheduled', 'Programmée'),
+        ('live', 'En cours'),
+        ('ended', 'Terminée'),
+        ('cancelled', 'Annulée'),
+    ]
+    
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='live_sessions')
+    teacher = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='hosted_sessions')
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    meeting_id = models.CharField(max_length=50, unique=True, editable=False)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField(null=True, blank=True)
+    max_participants = models.IntegerField(default=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-start_time']
+    
+    def __str__(self):
+        return f"{self.title} - {self.subject.name}"
+    
+    def save(self, *args, **kwargs):
+        if not self.meeting_id:
+            self.meeting_id = get_random_string(10)
+        super().save(*args, **kwargs)
+    
+    def is_active(self):
+        return self.status == 'live'
+
+class LiveParticipant(models.Model):
+    session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name='participants')
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    left_at = models.DateTimeField(null=True, blank=True)
+    is_presenter = models.BooleanField(default=False)
+    audio_enabled = models.BooleanField(default=True)
+    video_enabled = models.BooleanField(default=True)
+    screen_sharing = models.BooleanField(default=False)
+    
+    class Meta:
+        unique_together = ('session', 'user')
+    
+    def __str__(self):
+        return f"{self.user.username} in {self.session.title}"
+
+class ScreenShare(models.Model):
+    session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name='screen_shares')
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    stream_id = models.CharField(max_length=200)
+    started_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    
+    class Meta:
+        ordering = ['-started_at']
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# backend/live/serializers.py
+from rest_framework import serializers
+from .models import LiveSession, LiveParticipant, ScreenShare
+from accounts.serializers import UserSerializer
+from classes.serializers import SubjectSerializer
+
+class LiveParticipantSerializer(serializers.ModelSerializer):
+    user_details = UserSerializer(source='user', read_only=True)
+    
+    class Meta:
+        model = LiveParticipant
+        fields = ['id', 'user', 'user_details', 'joined_at', 'left_at', 
+                 'is_presenter', 'audio_enabled', 'video_enabled', 'screen_sharing']
+
+class LiveSessionSerializer(serializers.ModelSerializer):
+    subject_details = SubjectSerializer(source='subject', read_only=True)
+    teacher_details = UserSerializer(source='teacher', read_only=True)
+    participants = LiveParticipantSerializer(many=True, read_only=True)
+    participants_count = serializers.SerializerMethodField()
+    is_active = serializers.BooleanField(read_only=True)
+    
+    class Meta:
+        model = LiveSession
+        fields = ['id', 'title', 'description', 'subject', 'subject_details',
+                 'teacher', 'teacher_details', 'meeting_id', 'status', 
+                 'start_time', 'end_time', 'max_participants', 'participants',
+                 'participants_count', 'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['meeting_id', 'created_at', 'updated_at']
+    
+    def get_participants_count(self, obj):
+        return obj.participants.count()
+
+class ScreenShareSerializer(serializers.ModelSerializer):
+    user_details = UserSerializer(source='user', read_only=True)
+    
+    class Meta:
+        model = ScreenShare
+        fields = ['id', 'session', 'user', 'user_details', 'stream_id',
+                 'started_at', 'ended_at', 'is_active']
+
+class CreateLiveSessionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LiveSession
+        fields = ['title', 'description', 'subject', 'start_time', 'max_participants']
+    
+    def validate(self, data):
+        # Vérifier que l'enseignant peut créer une session pour cette matière
+        user = self.context['request'].user
+        if user.role != 'teacher':
+            raise serializers.ValidationError("Seuls les enseignants peuvent créer des sessions")
+        
+        subject = data.get('subject')
+        if subject.teacher != user:
+            raise serializers.ValidationError("Vous n'enseignez pas cette matière")
+        
+        return data
+
+class JoinLiveSessionSerializer(serializers.Serializer):
+    meeting_id = serializers.CharField(max_length=50, required=True)
+    user_id = serializers.IntegerField(required=True)
+
+
+
+
+
+
+
+
+
+
+
+
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import LiveSessionViewSet, ScreenShareViewSet, JoinSessionView
+
+router = DefaultRouter()
+router.register(r'sessions', LiveSessionViewSet, basename='livesession')  # AJOUTÉ basename
+router.register(r'screen-shares', ScreenShareViewSet, basename='screenshare')  # AJOUTÉ basename
+
+urlpatterns = [
+    path('', include(router.urls)),
+    path('join/', JoinSessionView.as_view(), name='join-session'),
+]
+
+
+
+
+
+
+
+
+
+from rest_framework import viewsets, status, generics
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from datetime import timedelta
+import uuid
+
+from .models import LiveSession, LiveParticipant, ScreenShare
+from .serializers import (LiveSessionSerializer, LiveParticipantSerializer,
+                         ScreenShareSerializer, CreateLiveSessionSerializer,
+                         JoinLiveSessionSerializer)
+from accounts.permissions import IsTeacher, IsStudent, IsAdmin
+from notifications.models import Notification
+
+class LiveSessionViewSet(viewsets.ModelViewSet):
+    queryset = LiveSession.objects.all()  # AJOUTÉ
+    serializer_class = LiveSessionSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'admin' or user.role == 'superadmin':
+            return LiveSession.objects.all()
+        elif user.role == 'teacher':
+            return LiveSession.objects.filter(teacher=user)
+        elif user.role == 'student':
+            # Sessions des matières où l'étudiant est inscrit
+            student_classes = user.enrolled_classes.all()
+            subject_ids = student_classes.values_list('subjects__id', flat=True)
+            return LiveSession.objects.filter(subject_id__in=subject_ids)
+        return LiveSession.objects.none()
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CreateLiveSessionSerializer
+        return LiveSessionSerializer
+    
+    def perform_create(self, serializer):
+        serializer.save(teacher=self.request.user)
+        
+        # Notifier les étudiants de la classe
+        session = serializer.instance
+        subject = session.subject
+        students = subject.class_assigned.students.all()
+        
+        for student in students:
+            Notification.objects.create(
+                user=student,
+                title="Nouvelle session live",
+                message=f"L'enseignant {self.request.user.get_full_name()} a programmé une session live pour {subject.name}",
+                notification_type='info'
+            )
+    
+    @action(detail=False, methods=['get'])
+    def active(self, request):
+        """Récupérer les sessions actives"""
+        sessions = self.get_queryset().filter(status='live')
+        serializer = self.get_serializer(sessions, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def upcoming(self, request):
+        """Récupérer les sessions à venir"""
+        now = timezone.now()
+        next_24h = now + timedelta(hours=24)
+        sessions = self.get_queryset().filter(
+            status='scheduled',
+            start_time__range=[now, next_24h]
+        )
+        serializer = self.get_serializer(sessions, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def start(self, request, pk=None):
+        """Démarrer une session"""
+        session = self.get_object()
+        
+        if session.teacher != request.user:
+            return Response({"error": "Seul l'enseignant peut démarrer la session"}, 
+                          status=status.HTTP_403_FORBIDDEN)
+        
+        session.status = 'live'
+        session.start_time = timezone.now()
+        session.save()
+        
+        # Notifier les étudiants
+        students = session.subject.class_assigned.students.all()
+        for student in students:
+            Notification.objects.create(
+                user=student,
+                title="Session live démarrée",
+                message=f"La session '{session.title}' a commencé. Rejoignez maintenant!",
+                notification_type='info'
+            )
+        
+        return Response({"message": "Session démarrée avec succès"})
+    
+    @action(detail=True, methods=['post'])
+    def end(self, request, pk=None):
+        """Terminer une session"""
+        session = self.get_object()
+        
+        if session.teacher != request.user and request.user.role not in ['admin', 'superadmin']:
+            return Response({"error": "Non autorisé"}, status=status.HTTP_403_FORBIDDEN)
+        
+        session.status = 'ended'
+        session.end_time = timezone.now()
+        session.save()
+        
+        return Response({"message": "Session terminée avec succès"})
+    
+    @action(detail=True, methods=['post'])
+    def join(self, request, pk=None):
+        """Rejoindre une session"""
+        session = self.get_object()
+        user = request.user
+        
+        # Vérifier les permissions
+        if user.role == 'student':
+            if user not in session.subject.class_assigned.students.all():
+                return Response({"error": "Vous n'êtes pas inscrit dans cette classe"},
+                              status=status.HTTP_403_FORBIDDEN)
+        
+        # Vérifier si la session est active
+        if session.status != 'live':
+            return Response({"error": "La session n'est pas active"},
+                          status=status.HTTP_400_BAD_REQUEST)
+        
+        # Vérifier le nombre maximum de participants
+        if session.participants.count() >= session.max_participants:
+            return Response({"error": "Session pleine"},
+                          status=status.HTTP_400_BAD_REQUEST)
+        
+        # Ajouter le participant
+        participant, created = LiveParticipant.objects.get_or_create(
+            session=session,
+            user=user,
+            defaults={'is_presenter': user.role == 'teacher'}
+        )
+        
+        if not created:
+            participant.left_at = None
+            participant.save()
+        
+        return Response({
+            "message": "Vous avez rejoint la session",
+            "meeting_id": session.meeting_id,
+            "is_presenter": participant.is_presenter
+        })
+    
+    @action(detail=True, methods=['post'])
+    def leave(self, request, pk=None):
+        """Quitter une session"""
+        session = self.get_object()
+        user = request.user
+        
+        try:
+            participant = LiveParticipant.objects.get(session=session, user=user)
+            participant.left_at = timezone.now()
+            participant.save()
+            
+            # Si c'est l'enseignant qui quitte, terminer la session
+            if user.role == 'teacher':
+                session.status = 'ended'
+                session.end_time = timezone.now()
+                session.save()
+            
+            return Response({"message": "Vous avez quitté la session"})
+        except LiveParticipant.DoesNotExist:
+            return Response({"error": "Vous n'êtes pas dans cette session"},
+                          status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['get'])
+    def participants(self, request, pk=None):
+        """Liste des participants"""
+        session = self.get_object()
+        participants = session.participants.all()
+        serializer = LiveParticipantSerializer(participants, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def toggle_audio(self, request, pk=None):
+        """Activer/désactiver l'audio"""
+        session = self.get_object()
+        user = request.user
+        
+        try:
+            participant = LiveParticipant.objects.get(session=session, user=user)
+            participant.audio_enabled = not participant.audio_enabled
+            participant.save()
+            
+            return Response({
+                "message": f"Audio {'activé' if participant.audio_enabled else 'désactivé'}",
+                "audio_enabled": participant.audio_enabled
+            })
+        except LiveParticipant.DoesNotExist:
+            return Response({"error": "Vous n'êtes pas dans cette session"},
+                          status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def toggle_video(self, request, pk=None):
+        """Activer/désactiver la vidéo"""
+        session = self.get_object()
+        user = request.user
+        
+        try:
+            participant = LiveParticipant.objects.get(session=session, user=user)
+            participant.video_enabled = not participant.video_enabled
+            participant.save()
+            
+            return Response({
+                "message": f"Vidéo {'activée' if participant.video_enabled else 'désactivée'}",
+                "video_enabled": participant.video_enabled
+            })
+        except LiveParticipant.DoesNotExist:
+            return Response({"error": "Vous n'êtes pas dans cette session"},
+                          status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def toggle_screen_share(self, request, pk=None):
+        """Activer/désactiver le partage d'écran"""
+        session = self.get_object()
+        user = request.user
+        
+        try:
+            participant = LiveParticipant.objects.get(session=session, user=user)
+            participant.screen_sharing = not participant.screen_sharing
+            participant.save()
+            
+            # Créer ou mettre à jour l'entrée ScreenShare
+            if participant.screen_sharing:
+                ScreenShare.objects.create(
+                    session=session,
+                    user=user,
+                    stream_id=request.data.get('stream_id', str(uuid.uuid4()))
+                )
+            else:
+                screen_share = ScreenShare.objects.filter(
+                    session=session,
+                    user=user,
+                    is_active=True
+                ).first()
+                if screen_share:
+                    screen_share.is_active = False
+                    screen_share.ended_at = timezone.now()
+                    screen_share.save()
+            
+            return Response({
+                "message": f"Partage d'écran {'activé' if participant.screen_sharing else 'désactivé'}",
+                "screen_sharing": participant.screen_sharing
+            })
+        except LiveParticipant.DoesNotExist:
+            return Response({"error": "Vous n'êtes pas dans cette session"},
+                          status=status.HTTP_400_BAD_REQUEST)
+
+class JoinSessionView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = JoinLiveSessionSerializer(data=request.data)
+        if serializer.is_valid():
+            meeting_id = serializer.validated_data['meeting_id']
+            
+            try:
+                session = LiveSession.objects.get(meeting_id=meeting_id, status='live')
+                
+                # Vérifier les permissions
+                user = request.user
+                if user.role == 'student':
+                    if user not in session.subject.class_assigned.students.all():
+                        return Response({"error": "Accès non autorisé"},
+                                      status=status.HTTP_403_FORBIDDEN)
+                
+                # Ajouter le participant
+                participant, created = LiveParticipant.objects.get_or_create(
+                    session=session,
+                    user=user,
+                    defaults={'is_presenter': user.role == 'teacher'}
+                )
+                
+                return Response({
+                    "success": True,
+                    "session": LiveSessionSerializer(session).data,
+                    "is_presenter": participant.is_presenter
+                })
+                
+            except LiveSession.DoesNotExist:
+                return Response({"error": "Session non trouvée ou inactive"},
+                              status=status.HTTP_404_NOT_FOUND)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ScreenShareViewSet(viewsets.ModelViewSet):
+    queryset = ScreenShare.objects.all()  # AJOUTÉ
+    serializer_class = ScreenShareSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        return ScreenShare.objects.filter(is_active=True)
+
+
+
+
+
+
+
+
+
+
+
+
+4eme app courses      models.py
+
+from django.db import models
+from classes.models import Subject
+from accounts.models import CustomUser
+
+class Course(models.Model):
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE)
+    teacher = models.ForeignKey(
+        CustomUser,
+        limit_choices_to={'role': 'teacher'},
+        on_delete=models.CASCADE
+    )
+
+class File(models.Model):
+    course = models.ForeignKey(Course, on_delete=models.CASCADE)
+    file = models.FileField(upload_to='courses/files/')
+    uploaded_by = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+
+
+
+
+
+
+
+
+
+
+
+serializers.py  
+
+
+from rest_framework import serializers
+from .models import Course, File
+
+class CourseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Course
+        fields = ("id", "title", "description", "subject", "teacher")
+        read_only_fields = ("teacher",)
+
+class FileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = File
+        fields = ("id", "course", "file", "uploaded_by", "uploaded_at")
+        read_only_fields = ("uploaded_by", "uploaded_at")
+
+
+
+
+urls.py
+
+
+from rest_framework import routers
+from .views import CourseViewSet
+from django.urls import path, include
+
+router = routers.DefaultRouter()
+router.register(r"courses", CourseViewSet, basename="courses")
+
+urlpatterns = [path("", include(router.urls))]
+
+
+
+
+
+
+
+
+views.py
+
+
+
+from rest_framework import viewsets, permissions
+from .models import Course, File
+from .serializers import CourseSerializer, FileSerializer
+from accounts.permissions import IsTeacher, IsAdmin, IsStudent
+
+class CourseViewSet(viewsets.ModelViewSet):
+    queryset = Course.objects.all()
+    serializer_class = CourseSerializer
+
+    def get_permissions(self):
+        if self.action in ("create", "update", "partial_update", "destroy"):
+            return [IsTeacher() | IsAdmin()]
+        return [permissions.IsAuthenticated()]
+
+    def perform_create(self, serializer):
+        serializer.save(teacher=self.request.user)
+
+class FileViewSet(viewsets.ModelViewSet):
+    queryset = File.objects.all()
+    serializer_class = FileSerializer
+
+    def get_permissions(self):
+        if self.action == 'create':
+            return [IsTeacher()]
+        return [IsStudent() | IsTeacher() | IsAdmin()]
+
+    def perform_create(self, serializer):
+        serializer.save(uploaded_by=self.request.user)
+
+
+
+
+
+
+
+
+5eme app notifiactions
+
+
+
+
+# notifications/consumers.py
+import json
+from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.db import database_sync_to_async
+from accounts.models import CustomUser
+from lms_sessions.models import Session
+from notifications.models import ChatMessage, Notification
+
+
+class ChatConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.session_id = self.scope["url_route"]["kwargs"]["session_id"]
+        self.room_group_name = f"chat_{self.session_id}"
+
+        # Vérifie que l'utilisateur a accès à cette session
+        if await self.can_access_session():
+            await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+            await self.accept()
+        else:
+            await self.close()
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        message = data['message']
+
+        # Sauvegarde du message
+        chat_msg = await database_sync_to_async(ChatMessage.objects.create)(
+            session_id=self.session_id,
+            user=self.scope["user"],
+            message=message
+        )
+
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'chat_message',
+                'message': message,
+                'user': self.scope["user"].username,
+                'timestamp': chat_msg.timestamp.isoformat()
+            }
+        )
+
+    async def chat_message(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'chat',
+            'message': event['message'],
+            'user': event['user'],
+            'timestamp': event['timestamp']
+        }))
+
+    @database_sync_to_async
+    def can_access_session(self):
+        try:
+            session = Session.objects.get(id=self.session_id)
+            user = self.scope["user"]
+            if user.is_anonymous:
+                return False
+            # Student dans la classe ou teacher de la matière
+            if user.role == "teacher" and session.teacher == user:
+                return True
+            if user.role == "student" and user in session.subject.class_assigned.students.all():
+                return True
+            return False
+        except Session.DoesNotExist:
+            return False
+
+
+class NotificationConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        if self.scope["user"].is_anonymous:
+            await self.close()
+            return
+
+        self.user_id = self.scope["user"].id
+        self.room_group_name = f"notifications_{self.user_id}"
+
+        await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+        await self.accept()
+
+        # Envoi des notifications non lues au connect
+        unread = await self.get_unread_notifications()
+        for notif in unread:
+            await self.send(text_data=json.dumps({
+                'type': 'notification',
+                'message': notif['message'],
+                'created_at': notif['created_at']
+            }))
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        if data.get('type') == 'mark_read':
+            await self.mark_all_read()
+
+    @database_sync_to_async
+    def get_unread_notifications(self):
+        return list(
+            Notification.objects.filter(user=self.scope["user"], read=False)
+            .values('message', 'created_at')
+        )
+
+    @database_sync_to_async
+    def mark_all_read(self):
+        Notification.objects.filter(user=self.scope["user"], read=False).update(read=True)
+
+
+
+
+
+
+
+
+
+
+# backend/notifications/models.py (version corrigée)
+from django.db import models
+from accounts.models import CustomUser
+
+class Notification(models.Model):
+    TYPE_CHOICES = [
+        ('info', 'Information'),
+        ('warning', 'Avertissement'),
+        ('success', 'Succès'),
+        ('error', 'Erreur'),
+        ('reminder', 'Rappel'),
+    ]
+    
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='notifications')
+    title = models.CharField(max_length=255, default="Notification")
+    message = models.TextField()
+    notification_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='info')
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    scheduled_time = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.title}"
+
+class ChatMessage(models.Model):
+    session = models.ForeignKey('lms_sessions.Session', on_delete=models.CASCADE, related_name='chat_messages')
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='chat_messages')
+    message = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['timestamp']
+    
+    def __str__(self):
+        return f"{self.user.username}: {self.message[:50]}"
+
+
+
+
+
+
+
+
+
+# notifications/routing.py
+from django.urls import re_path
+from . import consumers
+
+websocket_urlpatterns = [
+    re_path(r'ws/chat/(?P<session_id>\d+)/$', consumers.ChatConsumer.as_asgi()),
+    re_path(r'ws/notifications/(?P<user_id>\d+)/$', consumers.NotificationConsumer.as_asgi()),
+]
+
+
+
+
+
+serializers.py
+
+
+
+from rest_framework import serializers
+from .models import Notification, ChatMessage
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = "__all__"
+        read_only_fields = ("created_at",)
+
+class ChatSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ChatMessage
+        fields = "__all__"
+        read_only_fields = ("timestamp",)
+
+
+
+
+
+
+
+
+
+urls.py
+
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import NotificationViewSet
+
+router = DefaultRouter()
+router.register(r"", NotificationViewSet, basename="notifications")
+
+urlpatterns = [
+    path("", include(router.urls)),
+]
+
+
+
+
+# backend/notifications/views.py
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from django.utils import timezone
+from datetime import timedelta
+from django.db.models import Q
+from django_celery_beat.models import PeriodicTask, CrontabSchedule
+import json
+
+from .models import Notification
+from .serializers import NotificationSerializer
+
+class NotificationViewSet(viewsets.ModelViewSet):
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Notification.objects.filter(user=self.request.user).order_by('-created_at')
+
+    @action(detail=False, methods=['get'])
+    def unread(self, request):
+        notifications = self.get_queryset().filter(read=False)
+        serializer = self.get_serializer(notifications, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def mark_all_read(self, request):
+        self.get_queryset().filter(read=False).update(read=True)
+        return Response({"detail": "Toutes les notifications marquées comme lues"})
+
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        notification = self.get_object()
+        notification.read = True
+        notification.save()
+        return Response({"detail": "Notification marquée comme lue"})
+
+    @action(detail=False, methods=['post'])
+    def send(self, request):
+        """Envoyer une notification à un utilisateur"""
+        user_id = request.data.get('user_id')
+        message = request.data.get('message')
+        notification_type = request.data.get('type', 'info')
+        
+        if not user_id or not message:
+            return Response({"detail": "user_id et message requis"}, status=400)
+        
+        notification = Notification.objects.create(
+            user_id=user_id,
+            message=message,
+            notification_type=notification_type
+        )
+        
+        return Response({
+            "detail": "Notification envoyée",
+            "notification": NotificationSerializer(notification).data
+        })
+
+    @action(detail=False, methods=['post'])
+    def schedule_session(self, request):
+        """Programmer une notification pour une session à venir"""
+        from schedule.models import TimeSlot
+        from accounts.models import CustomUser
+        from datetime import datetime
+        
+        session_id = request.data.get('session_id')
+        minutes_before = request.data.get('minutes_before', 5)
+        
+        try:
+            time_slot = TimeSlot.objects.get(id=session_id)
+            
+            # Calculer le temps de la notification
+            notification_time = time_slot.start_time - timedelta(minutes=minutes_before)
+            
+            # Récupérer tous les étudiants de la classe
+            students = time_slot.subject.class_assigned.students.all()
+            
+            # Récupérer l'enseignant
+            teacher = time_slot.teacher
+            
+            # Créer les notifications
+            notifications = []
+            
+            # Notifications pour les étudiants
+            for student in students:
+                notifications.append(Notification(
+                    user=student,
+                    message=f"?? Rappel: {time_slot.subject.name} dans {minutes_before} minutes",
+                    notification_type='reminder',
+                    scheduled_time=notification_time
+                ))
+            
+            # Notification pour l'enseignant
+            notifications.append(Notification(
+                user=teacher,
+                message=f"????? Rappel: Cours de {time_slot.subject.name} dans {minutes_before} minutes",
+                notification_type='reminder',
+                scheduled_time=notification_time
+            ))
+            
+            Notification.objects.bulk_create(notifications)
+            
+            # Programmer la tâche Celery
+            self.schedule_celery_task(time_slot, minutes_before)
+            
+            return Response({
+                "detail": f"Notifications programmées pour {len(notifications)} personnes"
+            })
+            
+        except TimeSlot.DoesNotExist:
+            return Response({"detail": "Session non trouvée"}, status=404)
+
+    def schedule_celery_task(self, time_slot, minutes_before):
+        """Programmer une tâche Celery pour envoyer les notifications"""
+        from datetime import datetime
+        
+        notification_time = time_slot.start_time - timedelta(minutes=minutes_before)
+        
+        # Créer une schedule crontab
+        schedule, _ = CrontabSchedule.objects.get_or_create(
+            minute=notification_time.minute,
+            hour=notification_time.hour,
+            day_of_month=notification_time.day,
+            month_of_year=notification_time.month,
+            day_of_week='*',
+        )
+        
+        # Créer la tâche périodique
+        task_name = f'send_session_reminder_{time_slot.id}'
+        
+        PeriodicTask.objects.create(
+            crontab=schedule,
+            name=task_name,
+            task='notifications.tasks.send_session_reminders',
+            args=json.dumps([time_slot.id, minutes_before]),
+            one_off=True,  # Tâche unique
+            start_time=notification_time
+        )
+
+    @action(detail=False, methods=['get'])
+    def pending_sessions(self, request):
+        """Récupérer les sessions à venir avec notifications"""
+        from schedule.models import TimeSlot
+        from datetime import datetime, timedelta
+        
+        user = request.user
+        now = timezone.now()
+        next_hour = now + timedelta(hours=1)
+        
+        if user.role == 'student':
+            # Sessions des classes de l'étudiant
+            classes = user.enrolled_classes.all()
+            sessions = TimeSlot.objects.filter(
+                subject__class_assigned__in=classes,
+                start_time__gte=now,
+                start_time__lte=next_hour
+            ).select_related('subject', 'teacher')
+            
+        elif user.role == 'teacher':
+            # Sessions de l'enseignant
+            sessions = TimeSlot.objects.filter(
+                teacher=user,
+                start_time__gte=now,
+                start_time__lte=next_hour
+            ).select_related('subject')
+            
+        else:
+            sessions = TimeSlot.objects.none()
+        
+        data = []
+        for session in sessions:
+            time_diff = session.start_time - now
+            minutes_left = int(time_diff.total_seconds() / 60)
+            
+            data.append({
+                'id': session.id,
+                'subject': session.subject.name,
+                'teacher': session.teacher.get_full_name() if user.role == 'student' else 'Vous',
+                'start_time': session.start_time,
+                'end_time': session.end_time,
+                'classroom': session.classroom,
+                'minutes_left': minutes_left,
+                'needs_notification': minutes_left <= 10 and minutes_left > 0
+            })
+        
+        return Response(data)
+
+
+
+
+
+
+
+app 6 schedule pour les cree et stcoker les emploit de temps  
+
+
+
+
+# backend/schedule/models.py - VERSION CORRIGÉE
+from django.db import models
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+from accounts.models import CustomUser
+from classes.models import Class, Subject
+import random
+from datetime import datetime, timedelta, time
+from django.dispatch import receiver
+import logging
+
+logger = logging.getLogger(__name__)
+
+class WeeklySchedule(models.Model):
+    class_assigned = models.ForeignKey(
+        Class,
+        on_delete=models.CASCADE,
+        related_name='weekly_schedules'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ('class_assigned',)
+        verbose_name = "Emploi du temps de classe"
+        verbose_name_plural = "Emplois du temps des classes"
+    
+    def __str__(self):
+        return f"Emploi - {self.class_assigned.name}"
+    
+    def get_teachers(self):
+        """Retourne tous les enseignants de cette classe"""
+        teachers = []
+        teacher_ids = set()
+        
+        for slot in self.time_slots.all():
+            if slot.teacher and slot.teacher.id not in teacher_ids:
+                teachers.append(slot.teacher)
+                teacher_ids.add(slot.teacher.id)
+        return teachers
+
+class TeacherSchedule(models.Model):
+    """Emploi du temps individuel d'un enseignant"""
+    teacher = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='teacher_schedule',
+        limit_choices_to={'role': 'teacher'}
+    )
+    weekly_hours = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        default=0.00,
+        help_text="Nombre total d'heures par semaine"
+    )
+    max_hours = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        default=20.00,
+        help_text="Nombre maximum d'heures par semaine"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Emploi du temps enseignant"
+        verbose_name_plural = "Emplois du temps enseignants"
+    
+    def __str__(self):
+        return f"Emploi - {self.teacher.get_full_name()}"
+    
+    def update_hours(self):
+        """Met à jour le nombre d'heures de l'enseignant"""
+        try:
+            total_hours = 0.0
+            time_slots = TimeSlot.objects.filter(teacher=self.teacher)
+            
+            for slot in time_slots:
+                if slot.start_time and slot.end_time:
+                    # Convertir les heures en décimal
+                    start_dt = datetime.combine(datetime.today(), slot.start_time)
+                    end_dt = datetime.combine(datetime.today(), slot.end_time)
+                    
+                    duration = end_dt - start_dt
+                    hours = duration.total_seconds() / 3600  # Convertir en heures
+                    total_hours += float(hours)
+            
+            self.weekly_hours = round(total_hours, 2)
+            self.save(update_fields=['weekly_hours', 'updated_at'])
+            return self.weekly_hours
+        except Exception as e:
+            logger.error(f"Erreur mise à jour heures enseignant {self.teacher.username}: {str(e)}")
+            return self.weekly_hours
+    
+    def is_full(self):
+        """Vérifie si l'enseignant a atteint son maximum d'heures"""
+        try:
+            return float(self.weekly_hours) >= float(self.max_hours)
+        except:
+            return False
+
+class TimeSlot(models.Model):
+    DAY_CHOICES = [
+        ('Monday', 'Lundi'),
+        ('Tuesday', 'Mardi'),
+        ('Wednesday', 'Mercredi'),
+        ('Thursday', 'Jeudi'),
+        ('Friday', 'Vendredi')
+    ]
+    
+    day = models.CharField(max_length=10, choices=DAY_CHOICES)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='time_slots')
+    teacher = models.ForeignKey(CustomUser, on_delete=models.CASCADE, limit_choices_to={'role': 'teacher'})
+    classroom = models.CharField(max_length=50, blank=True, null=True)
+    schedule = models.ForeignKey(
+        WeeklySchedule, 
+        on_delete=models.CASCADE, 
+        related_name='time_slots', 
+        null=True, 
+        blank=True
+    )
+    teacher_schedule = models.ForeignKey(
+        TeacherSchedule, 
+        on_delete=models.CASCADE, 
+        related_name='time_slots', 
+        null=True, 
+        blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['day', 'start_time']
+        unique_together = ('teacher', 'day', 'start_time', 'end_time')
+        verbose_name = "Créneau horaire"
+        verbose_name_plural = "Créneaux horaires"
+    
+    def __str__(self):
+        return f"{self.get_day_display()} {self.start_time}-{self.end_time} - {self.subject.name}"
+    
+    def save(self, *args, **kwargs):
+        # Mettre à jour le champ teacher_schedule si nécessaire
+        if self.teacher and not self.teacher_schedule:
+            teacher_schedule, created = TeacherSchedule.objects.get_or_create(teacher=self.teacher)
+            self.teacher_schedule = teacher_schedule
+        
+        # Sauvegarder
+        super().save(*args, **kwargs)
+        
+        # Mettre à jour les heures de l'enseignant
+        if self.teacher_schedule:
+            try:
+                self.teacher_schedule.update_hours()
+            except Exception as e:
+                logger.error(f"Erreur mise à jour heures après sauvegarde créneau: {str(e)}")
+
+# Signaux
+@receiver(models.signals.post_save, sender=CustomUser)
+def create_teacher_schedule(sender, instance, created, **kwargs):
+    """Créer automatiquement un emploi du temps pour les nouveaux enseignants"""
+    try:
+        if instance.role == 'teacher' and created:
+            TeacherSchedule.objects.get_or_create(teacher=instance)
+    except Exception as e:
+        logger.error(f"Erreur création emploi enseignant: {str(e)}")
+
+@receiver(models.signals.post_save, sender=TimeSlot)
+def update_teacher_schedule_on_slot_change(sender, instance, created, **kwargs):
+    """Mettre à jour l'emploi de l'enseignant quand un créneau change"""
+    try:
+        if instance.teacher:
+            teacher_schedule, created = TeacherSchedule.objects.get_or_create(teacher=instance.teacher)
+            teacher_schedule.update_hours()
+    except Exception as e:
+        logger.error(f"Erreur mise à jour emploi enseignant: {str(e)}")
+
+
+
+
+
+
+
+
+
+
+# backend/schedule/serializers.py - VERSION COMPLÈTE
+from rest_framework import serializers
+from .models import WeeklySchedule, TimeSlot, TeacherSchedule
+from classes.models import Class
+from accounts.models import CustomUser
+from datetime import datetime
+
+class TimeSlotSerializer(serializers.ModelSerializer):
+    day_display = serializers.CharField(source='get_day_display', read_only=True)
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+    teacher_name = serializers.CharField(source='teacher.get_full_name', read_only=True)
+    teacher_email = serializers.CharField(source='teacher.email', read_only=True, allow_null=True)
+    class_name = serializers.SerializerMethodField(read_only=True)
+    specialty_name = serializers.CharField(source='subject.specialty.name', read_only=True, allow_null=True)
+    duration = serializers.SerializerMethodField(read_only=True)
+    
+    class Meta:
+        model = TimeSlot
+        fields = [
+            'id', 'day', 'day_display', 'start_time', 'end_time',
+            'subject', 'subject_name', 'teacher', 'teacher_name', 'teacher_email',
+            'class_name', 'classroom', 'schedule', 'teacher_schedule',
+            'specialty_name', 'duration', 'created_at'
+        ]
+        read_only_fields = ['created_at']
+    
+    def get_class_name(self, obj):
+        if obj.schedule and obj.schedule.class_assigned:
+            return obj.schedule.class_assigned.name
+        return None
+    
+    def get_duration(self, obj):
+        if obj.start_time and obj.end_time:
+            try:
+                start_dt = datetime.combine(datetime.today(), obj.start_time)
+                end_dt = datetime.combine(datetime.today(), obj.end_time)
+                duration = end_dt - start_dt
+                return round(duration.total_seconds() / 3600, 2)
+            except:
+                return 0
+        return 0
+
+class TeacherScheduleSerializer(serializers.ModelSerializer):
+    teacher_name = serializers.CharField(source='teacher.get_full_name', read_only=True)
+    teacher_email = serializers.CharField(source='teacher.email', read_only=True)
+    teacher_specialty = serializers.SerializerMethodField(read_only=True)
+    is_full = serializers.SerializerMethodField(read_only=True)
+    time_slots = serializers.SerializerMethodField(read_only=True)
+    schedule_by_day = serializers.SerializerMethodField(read_only=True)
+    available_slots = serializers.SerializerMethodField(read_only=True)
+    
+    class Meta:
+        model = TeacherSchedule
+        fields = [
+            'id', 'teacher', 'teacher_name', 'teacher_email', 'teacher_specialty',
+            'weekly_hours', 'max_hours', 'is_full', 
+            'time_slots', 'schedule_by_day', 'available_slots',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+    
+    def get_teacher_specialty(self, obj):
+        if obj.teacher.specialty:
+            return obj.teacher.specialty.name
+        return None
+    
+    def get_is_full(self, obj):
+        return obj.is_full()
+    
+    def get_time_slots(self, obj):
+        """Récupère tous les créneaux de l'enseignant"""
+        try:
+            time_slots = TimeSlot.objects.filter(
+                teacher=obj.teacher
+            ).select_related(
+                'subject', 'subject__specialty', 'schedule__class_assigned'
+            ).order_by('day', 'start_time')
+            
+            return TimeSlotSerializer(time_slots, many=True).data
+        except Exception as e:
+            return []
+    
+    def get_schedule_by_day(self, obj):
+        """Organise les créneaux par jour"""
+        try:
+            time_slots = TimeSlot.objects.filter(
+                teacher=obj.teacher
+            ).select_related(
+                'subject', 'subject__specialty', 'schedule__class_assigned'
+            ).order_by('day', 'start_time')
+            
+            schedule_by_day = {}
+            for slot in time_slots:
+                day = slot.get_day_display()
+                if day not in schedule_by_day:
+                    schedule_by_day[day] = []
+                
+                schedule_by_day[day].append(TimeSlotSerializer(slot).data)
+            
+            return schedule_by_day
+        except Exception as e:
+            return {}
+    
+    def get_available_slots(self, obj):
+        """Récupère les créneaux disponibles par jour"""
+        try:
+            available_slots = {}
+            days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+            
+            for day in days:
+                slots = obj.get_available_slots(day)
+                if slots:
+                    day_display = dict(TimeSlot.DAY_CHOICES).get(day, day)
+                    available_slots[day_display] = slots
+            
+            return available_slots
+        except Exception as e:
+            return {}
+
+class WeeklyScheduleSerializer(serializers.ModelSerializer):
+    time_slots = TimeSlotSerializer(many=True, read_only=True)
+    class_name = serializers.CharField(source='class_assigned.name', read_only=True)
+    class_info = serializers.SerializerMethodField(read_only=True)
+    teachers = serializers.SerializerMethodField(read_only=True)
+    total_hours = serializers.SerializerMethodField(read_only=True)
+    is_complete = serializers.SerializerMethodField(read_only=True)
+    
+    class Meta:
+        model = WeeklySchedule
+        fields = [
+            'id', 'class_assigned', 'class_name', 'class_info',
+            'teachers', 'time_slots', 'total_hours', 'is_complete',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+    
+    def get_class_info(self, obj):
+        """Retourne des informations détaillées sur la classe"""
+        try:
+            class_obj = obj.class_assigned
+            return {
+                'id': class_obj.id,
+                'name': class_obj.name,
+                'student_count': class_obj.student_count(),
+                'max_students': class_obj.max_students,
+                'is_full': class_obj.is_full()
+            }
+        except:
+            return {
+                'id': obj.class_assigned.id,
+                'name': obj.class_assigned.name,
+                'student_count': 0,
+                'max_students': 30,
+                'is_full': False
+            }
+    
+    def get_teachers(self, obj):
+        """Retourne la liste des enseignants de cette classe"""
+        try:
+            teachers = []
+            seen_teacher_ids = set()
+            
+            for slot in obj.time_slots.all():
+                if slot.teacher and slot.teacher.id not in seen_teacher_ids:
+                    teacher_data = {
+                        'id': slot.teacher.id,
+                        'name': slot.teacher.get_full_name(),
+                        'email': slot.teacher.email,
+                    }
+                    
+                    if slot.teacher.specialty:
+                        teacher_data['specialty'] = slot.teacher.specialty.name
+                    
+                    teachers.append(teacher_data)
+                    seen_teacher_ids.add(slot.teacher.id)
+            
+            return teachers
+        except Exception as e:
+            return []
+    
+    def get_total_hours(self, obj):
+        """Calcule le total d'heures de la classe"""
+        try:
+            total_hours = 0.0
+            for slot in obj.time_slots.all():
+                if slot.start_time and slot.end_time:
+                    start_dt = datetime.combine(datetime.today(), slot.start_time)
+                    end_dt = datetime.combine(datetime.today(), slot.end_time)
+                    duration = end_dt - start_dt
+                    total_hours += duration.total_seconds() / 3600
+            
+            return round(total_hours, 2)
+        except:
+            return 0.0
+    
+    def get_is_complete(self, obj):
+        """Vérifie si l'emploi est complet (20 créneaux = semaine complète)"""
+        return obj.time_slots.count() >= 20
+
+
+
+
+
+
+
+
+
+# backend/schedule/urls.py
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import WeeklyScheduleViewSet, TeacherScheduleViewSet, TimeSlotViewSet
+
+router = DefaultRouter()
+router.register(r'schedules', WeeklyScheduleViewSet, basename='weeklyschedule')
+router.register(r'teacher-schedules', TeacherScheduleViewSet, basename='teacherschedule')
+router.register(r'time-slots', TimeSlotViewSet, basename='timeslot')
+
+# backend/schedule/urls.py - AJOUTER CES ROUTES
+urlpatterns = [
+    path('', include(router.urls)),
+    path('generate-smart/', WeeklyScheduleViewSet.as_view({'post': 'generate_smart_schedule'}), name='generate-smart'),
+    
+    # Routes spécifiques pour étudiants et enseignants
+    path('student/my-schedule/', WeeklyScheduleViewSet.as_view({'get': 'student_my_schedule'}), name='student-my-schedule'),
+    path('teacher/my-schedule/', TeacherScheduleViewSet.as_view({'get': 'my_schedule'}), name='teacher-my-schedule'),
+    
+    # Routes admin
+    path('class/<int:class_id>/', WeeklyScheduleViewSet.as_view({'get': 'class_schedule'}), name='class-schedule'),
+    path('teacher/<int:teacher_id>/', WeeklyScheduleViewSet.as_view({'get': 'teacher_schedule'}), name='teacher-schedule'),
+]
+
+
+
+
+
+
+
+
+
+
+# backend/schedule/views.py - VERSION COMPLÈTE CORRIGÉE
+from rest_framework import viewsets, permissions, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from django.db.models import Q
+from django.db import transaction
+from django.utils import timezone
+from .models import WeeklySchedule, TimeSlot, TeacherSchedule
+from .serializers import WeeklyScheduleSerializer, TimeSlotSerializer, TeacherScheduleSerializer
+from accounts.permissions import IsAdmin
+from accounts.models import CustomUser
+from classes.models import Class, Subject
+import logging
+from datetime import datetime, date
+import random
+from datetime import datetime, timedelta, time
+import json
+
+logger = logging.getLogger(__name__)
+
+# ========================================
+# CLASSE POUR GÉNÉRATION INTELLIGENTE - CORRIGÉE
+# ========================================
+# backend/schedule/views.py - SmartScheduleGenerator COMPLÈTE
+class SmartScheduleGenerator:
+    """Classe intelligente pour générer et mettre à jour les emplois du temps"""
+    
+    @staticmethod
+    def generate_schedule_for_class(class_obj, force_update=False, smart_mode=True):
+        """
+        Génère ou met à jour l'emploi du temps d'une classe avec synchronisation enseignants
+        """
+        try:
+            logger.info(f"Début génération emploi pour {class_obj.name}, force_update={force_update}, smart_mode={smart_mode}")
+            
+            with transaction.atomic():
+                # Vérifier si l'emploi existe déjà
+                schedule, created = WeeklySchedule.objects.get_or_create(
+                    class_assigned=class_obj
+                )
+                
+                logger.info(f"Schedule: {'créé' if created else 'existant'}, ID: {schedule.id}")
+                
+                # Si pas de force_update et emploi existe déjà avec au moins 15 créneaux, on arrête
+                if not force_update and not created and schedule.time_slots.count() >= 15:
+                    logger.info(f"Emploi existe déjà avec {schedule.time_slots.count()} créneaux")
+                    return {
+                        'success': True,
+                        'message': f'Emploi du temps de {class_obj.name} existe déjà et est presque complet',
+                        'schedule_id': schedule.id,
+                        'created_slots': schedule.time_slots.count(),
+                        'updated': False
+                    }
+                
+                # Récupérer les matières actuelles avec enseignants
+                subjects = Subject.objects.filter(
+                    class_assigned=class_obj,
+                    teacher__isnull=False,
+                    teacher__approved=True
+                ).select_related('teacher', 'specialty')
+                
+                subjects_list = list(subjects)
+                logger.info(f"Nombre de matières trouvées: {len(subjects_list)}")
+                
+                if len(subjects_list) == 0:
+                    return {
+                        'success': False,
+                        'message': f'Aucune matière avec enseignant dans la classe {class_obj.name}'
+                    }
+                
+                # Sauvegarder l'ancien nombre de créneaux
+                old_slots_count = schedule.time_slots.count()
+                
+                # Supprimer les anciens créneaux si force_update ou création
+                if force_update or created:
+                    deleted_count, _ = schedule.time_slots.all().delete()
+                    logger.info(f"Créneaux supprimés: {deleted_count}")
+                
+                # Horaires standards
+                days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+                slots = [
+                    {'start': time(8, 30), 'end': time(10, 0)},
+                    {'start': time(10, 15), 'end': time(11, 45)},
+                    {'start': time(13, 0), 'end': time(14, 30)},
+                    {'start': time(14, 45), 'end': time(16, 15)}
+                ]
+                
+                created_slots = []
+                errors = []
+                teachers_updated = set()
+                
+                # Génération intelligente avec rotation des matières
+                for day in days:
+                    for slot_index, slot in enumerate(slots):
+                        try:
+                            # Choisir la matière pour ce créneau (rotation)
+                            subject_index = (days.index(day) * len(slots) + slot_index) % len(subjects_list)
+                            subject = subjects_list[subject_index]
+                            teacher = subject.teacher
+                            
+                            # Vérifier si l'enseignant est déjà occupé à ce créneau
+                            teacher_busy = TimeSlot.objects.filter(
+                                teacher=teacher,
+                                day=day,
+                                start_time=slot['start'],
+                                end_time=slot['end']
+                            ).exists()
+                            
+                            if teacher_busy and smart_mode:
+                                # Chercher une autre matière avec un enseignant disponible
+                                alternative_subject = None
+                                for sub in subjects_list:
+                                    if sub.id != subject.id:
+                                        sub_teacher = sub.teacher
+                                        
+                                        # Vérifier si l'enseignant est disponible
+                                        busy = TimeSlot.objects.filter(
+                                            teacher=sub_teacher,
+                                            day=day,
+                                            start_time=slot['start'],
+                                            end_time=slot['end']
+                                        ).exists()
+                                        
+                                        if not busy:
+                                            alternative_subject = sub
+                                            break
+                                
+                                if alternative_subject:
+                                    subject = alternative_subject
+                                    teacher = subject.teacher
+                                else:
+                                    errors.append(f"Pas d'enseignant disponible le {day} à {slot['start'].strftime('%H:%M')}")
+                                    continue
+                            
+                            # Choisir une salle disponible
+                            classroom = SmartScheduleGenerator.get_available_classroom(
+                                day, slot['start'], slot['end']
+                            )
+                            
+                            if not classroom:
+                                classroom = f"B{101 + slot_index}"
+                            
+                            # Créer le créneau
+                            time_slot = TimeSlot.objects.create(
+                                day=day,
+                                start_time=slot['start'],
+                                end_time=slot['end'],
+                                subject=subject,
+                                teacher=teacher,
+                                classroom=classroom,
+                                schedule=schedule
+                            )
+                            
+                            created_slots.append(time_slot.id)
+                            teachers_updated.add(teacher.id)
+                            
+                        except Exception as e:
+                            error_msg = f"Erreur créneau {day} {slot['start'].strftime('%H:%M')}: {str(e)}"
+                            logger.error(error_msg)
+                            errors.append(error_msg)
+                
+                logger.info(f"Créneaux créés: {len(created_slots)}, Enseignants affectés: {len(teachers_updated)}")
+                
+                # Mettre à jour les emplois des enseignants
+                for teacher_id in teachers_updated:
+                    try:
+                        teacher = CustomUser.objects.get(id=teacher_id)
+                        teacher_schedule, _ = TeacherSchedule.objects.get_or_create(teacher=teacher)
+                        teacher_schedule.update_hours()
+                    except Exception as e:
+                        logger.error(f"Erreur mise à jour enseignant {teacher_id}: {str(e)}")
+                        errors.append(f"Erreur mise à jour enseignant {teacher_id}")
+                
+                # Mettre à jour l'horodatage
+                schedule.save()
+                
+                return {
+                    'success': True,
+                    'message': f'Emploi du temps généré pour {class_obj.name}',
+                    'schedule_id': schedule.id,
+                    'created_slots': len(created_slots),
+                    'teachers_updated': len(teachers_updated),
+                    'old_slots_count': old_slots_count,
+                    'errors': errors,
+                    'updated': True
+                }
+                
+        except Exception as e:
+            error_msg = f"Erreur génération emploi {class_obj.name}: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'success': False,
+                'message': error_msg
+            }
+    
+    @staticmethod
+    def get_available_classroom(day, start_time, end_time):
+        """Retourne une salle disponible pour un créneau donné"""
+        try:
+            all_rooms = [
+                'B101', 'B102', 'B103', 'B104',
+                'B201', 'B202', 'B203', 'B204',
+                'B301', 'B302', 'B303', 'B304',
+                'Amphi A', 'Amphi B', 'Labo Info 1', 'Labo Info 2'
+            ]
+            
+            # Récupérer les salles occupées à ce créneau
+            occupied_rooms = TimeSlot.objects.filter(
+                day=day,
+                start_time=start_time,
+                end_time=end_time
+            ).exclude(classroom__isnull=True).exclude(classroom='').values_list('classroom', flat=True)
+            
+            occupied_set = set(occupied_rooms)
+            available_rooms = [room for room in all_rooms if room not in occupied_set]
+            
+            # Retourner une salle aléatoire parmi les disponibles
+            if available_rooms:
+                return random.choice(available_rooms)
+            else:
+                return "B101"
+                
+        except Exception as e:
+            logger.error(f"Erreur recherche salle: {str(e)}")
+            return "B101"
+    
+    @staticmethod
+    def check_teacher_availability(teacher_id, new_class_id):
+        """
+        Vérifie si un enseignant peut prendre une nouvelle classe
+        Retourne (disponible, message, heures_restantes)
+        """
+        try:
+            teacher = CustomUser.objects.get(id=teacher_id, role='teacher')
+            class_obj = Class.objects.get(id=new_class_id)
+            
+            # Récupérer l'emploi de l'enseignant
+            teacher_schedule, _ = TeacherSchedule.objects.get_or_create(teacher=teacher)
+            
+            # Calculer les heures que prendrait la nouvelle classe
+            # Estimation: 4 cours de 1h30 par semaine = 6h
+            estimated_hours = 6.0
+            
+            if teacher_schedule.is_full():
+                return False, f"L'enseignant a un emploi complet ({teacher_schedule.weekly_hours}/{teacher_schedule.max_hours}h)", 0.0
+            
+            # Vérifier les conflits d'horaire potentiels
+            days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+            slots = [
+                {'start': time(8, 30), 'end': time(10, 0)},
+                {'start': time(10, 15), 'end': time(11, 45)},
+                {'start': time(13, 0), 'end': time(14, 30)},
+                {'start': time(14, 45), 'end': time(16, 15)}
+            ]
+            
+            for day in days:
+                for slot in slots:
+                    conflict = TimeSlot.objects.filter(
+                        teacher=teacher,
+                        day=day,
+                        start_time=slot['start'],
+                        end_time=slot['end']
+                    ).exists()
+                    
+                    if conflict:
+                        return False, f"Conflit d'horaire le {day} à {slot['start'].strftime('%H:%M')}", 0.0
+            
+            remaining_hours = float(teacher_schedule.max_hours) - float(teacher_schedule.weekly_hours)
+            return True, f"L'enseignant peut prendre cette classe ({remaining_hours:.1f}h disponibles)", remaining_hours
+            
+        except CustomUser.DoesNotExist:
+            return False, "Enseignant non trouvé", 0.0
+        except Class.DoesNotExist:
+            return False, "Classe non trouvée", 0.0
+        except Exception as e:
+            logger.error(f"Erreur vérification disponibilité: {str(e)}")
+            return False, f"Erreur de vérification: {str(e)}", 0.0
+    
+    @staticmethod
+    def sync_all_teachers():
+        """Synchronise tous les emplois des enseignants avec les emplois de classe"""
+        try:
+            teachers_updated = 0
+            errors = []
+            
+            # Pour chaque enseignant
+            teacher_schedules = TeacherSchedule.objects.all().select_related('teacher')
+            total_teachers = teacher_schedules.count()
+            
+            for teacher_schedule in teacher_schedules:
+                try:
+                    # Recalculer les heures
+                    old_hours = float(teacher_schedule.weekly_hours)
+                    new_hours = teacher_schedule.update_hours()
+                    
+                    if abs(float(new_hours) - old_hours) > 0.1:
+                        teachers_updated += 1
+                        logger.info(f"Enseignant {teacher_schedule.teacher.username} mis à jour: {old_hours} -> {new_hours}")
+                        
+                except Exception as e:
+                    error_msg = f"Erreur enseignant {teacher_schedule.teacher.username}: {str(e)}"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+            
+            return {
+                'success': True,
+                'message': f'Synchronisation terminée: {teachers_updated}/{total_teachers} enseignants mis à jour',
+                'teachers_updated': teachers_updated,
+                'total_teachers': total_teachers,
+                'errors': errors
+            }
+            
+        except Exception as e:
+            error_msg = f"Erreur synchro enseignants: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'success': False,
+                'message': error_msg
+            }
+    
+    @staticmethod
+    def check_for_conflicts():
+        """Vérifie les conflits dans les emplois du temps"""
+        try:
+            conflicts = []
+            
+            # Vérifier les conflits d'enseignants
+            time_slots = TimeSlot.objects.all().select_related(
+                'teacher', 'subject', 'schedule__class_assigned'
+            )
+            
+            # Regrouper par enseignant, jour et heure
+            teacher_slots = {}
+            for slot in time_slots:
+                if slot.teacher and slot.start_time and slot.end_time:
+                    key = f"{slot.teacher_id}_{slot.day}_{slot.start_time}_{slot.end_time}"
+                    if key not in teacher_slots:
+                        teacher_slots[key] = []
+                    teacher_slots[key].append(slot)
+            
+            # Détecter les conflits enseignants
+            for key, slots in teacher_slots.items():
+                if len(slots) > 1:
+                    conflict_info = {
+                        'type': 'teacher_conflict',
+                        'teacher': slots[0].teacher.get_full_name(),
+                        'teacher_id': slots[0].teacher_id,
+                        'day': slots[0].get_day_display(),
+                        'time': f"{slots[0].start_time.strftime('%H:%M')} - {slots[0].end_time.strftime('%H:%M')}",
+                        'count': len(slots),
+                        'classes': []
+                    }
+                    
+                    for slot in slots:
+                        class_name = slot.schedule.class_assigned.name if slot.schedule else 'N/A'
+                        conflict_info['classes'].append({
+                            'class': class_name,
+                            'subject': slot.subject.name if slot.subject else 'N/A',
+                            'class_id': slot.schedule.class_assigned.id if slot.schedule else None
+                        })
+                    
+                    conflicts.append(conflict_info)
+            
+            # Vérifier les conflits de salles
+            classroom_slots = {}
+            for slot in time_slots:
+                if slot.classroom and slot.start_time and slot.end_time:
+                    key = f"{slot.classroom}_{slot.day}_{slot.start_time}_{slot.end_time}"
+                    if key not in classroom_slots:
+                        classroom_slots[key] = []
+                    classroom_slots[key].append(slot)
+            
+            for key, slots in classroom_slots.items():
+                if len(slots) > 1:
+                    conflict_info = {
+                        'type': 'classroom_conflict',
+                        'classroom': slots[0].classroom,
+                        'day': slots[0].get_day_display(),
+                        'time': f"{slots[0].start_time.strftime('%H:%M')} - {slots[0].end_time.strftime('%H:%M')}",
+                        'count': len(slots),
+                        'classes': []
+                    }
+                    
+                    for slot in slots:
+                        class_name = slot.schedule.class_assigned.name if slot.schedule else 'N/A'
+                        conflict_info['classes'].append({
+                            'class': class_name,
+                            'subject': slot.subject.name if slot.subject else 'N/A',
+                            'teacher': slot.teacher.get_full_name() if slot.teacher else 'N/A'
+                        })
+                    
+                    conflicts.append(conflict_info)
+            
+            return conflicts
+            
+        except Exception as e:
+            logger.error(f"Erreur vérification conflits: {str(e)}")
+            return []
+
+# ========================================
+# VIEWSETS PRINCIPAUX - CORRIGÉS
+# ========================================
+class TeacherScheduleViewSet(viewsets.ModelViewSet):
+    """Gestion des emplois du temps des enseignants"""
+    queryset = TeacherSchedule.objects.all().select_related('teacher', 'teacher__specialty')
+    serializer_class = TeacherScheduleSerializer
+    
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve', 'my_schedule', 'available_teachers']:
+            return [permissions.IsAuthenticated()]
+        return [IsAdmin()]
+    
+    def get_queryset(self):
+        """Filtrer selon l'utilisateur"""
+        user = self.request.user
+        
+        if user.is_anonymous:
+            return TeacherSchedule.objects.none()
+        
+        if user.role in ['admin', 'superadmin']:
+            return TeacherSchedule.objects.all().select_related('teacher', 'teacher__specialty')
+        elif user.role == 'teacher':
+            return TeacherSchedule.objects.filter(teacher=user).select_related('teacher', 'teacher__specialty')
+        
+        return TeacherSchedule.objects.none()
+    
+    @action(detail=False, methods=['get'], url_path='my-schedule')
+    def my_schedule(self, request):
+        """L'emploi du temps de l'enseignant connecté"""
+        user = request.user
+        
+        if user.role != 'teacher':
+            return Response({
+                'success': False,
+                'error': 'Cette fonctionnalité est réservée aux enseignants'
+            }, status=403)
+        
+        try:
+            teacher_schedule = get_object_or_404(TeacherSchedule, teacher=user)
+            serializer = self.get_serializer(teacher_schedule)
+            return Response({
+                'success': True,
+                'data': serializer.data
+            })
+        except Exception as e:
+            logger.error(f"Erreur récupération emploi enseignant: {str(e)}")
+            return Response({
+                'success': False,
+                'error': 'Erreur lors de la récupération de votre emploi du temps'
+            }, status=500)
+    
+    @action(detail=False, methods=['get'], url_path='available-teachers')
+    def available_teachers(self, request):
+        """Retourne la liste des enseignants disponibles pour une nouvelle classe"""
+        try:
+            class_id = request.query_params.get('class_id')
+            if not class_id:
+                return Response({
+                    'success': False,
+                    'error': 'class_id requis'
+                }, status=400)
+            
+            class_obj = Class.objects.get(id=class_id)
+            teachers = CustomUser.objects.filter(role='teacher', approved=True)
+            
+            available_teachers = []
+            for teacher in teachers:
+                # Vérifier la disponibilité
+                available, message, hours_left = SmartScheduleGenerator.check_teacher_availability(
+                    teacher.id, class_obj.id
+                )
+                
+                # Récupérer l'emploi de l'enseignant
+                teacher_schedule, _ = TeacherSchedule.objects.get_or_create(teacher=teacher)
+                
+                available_teachers.append({
+                    'id': teacher.id,
+                    'name': teacher.get_full_name(),
+                    'email': teacher.email,
+                    'specialty': teacher.specialty.name if teacher.specialty else None,
+                    'available': available,
+                    'message': message,
+                    'current_hours': float(teacher_schedule.weekly_hours),
+                    'max_hours': float(teacher_schedule.max_hours),
+                    'hours_left': hours_left,
+                    'is_full': teacher_schedule.is_full()
+                })
+            
+            return Response({
+                'success': True,
+                'class': {
+                    'id': class_obj.id,
+                    'name': class_obj.name
+                },
+                'available_teachers': available_teachers,
+                'total_teachers': len(available_teachers),
+                'available_count': len([t for t in available_teachers if t['available']])
+            })
+            
+        except Class.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Classe non trouvée'
+            }, status=404)
+        except Exception as e:
+            logger.error(f"Erreur récupération enseignants disponibles: {str(e)}")
+            return Response({
+                'success': False,
+                'error': f'Erreur serveur: {str(e)}'
+            }, status=500)
+        
+# backend/schedule/views.py - VERSION COMPLÈTE CORRIGÉE
+from rest_framework import viewsets, permissions, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from django.db.models import Q
+from django.db import transaction
+from django.utils import timezone
+from .models import WeeklySchedule, TimeSlot, TeacherSchedule
+from .serializers import WeeklyScheduleSerializer, TimeSlotSerializer, TeacherScheduleSerializer
+from accounts.permissions import IsAdmin as IsAdminPermission
+from accounts.models import CustomUser
+from classes.models import Class, Subject
+import logging
+import random
+from datetime import datetime, timedelta, time
+import json
+
+logger = logging.getLogger(__name__)
+
+class WeeklyScheduleViewSet(viewsets.ModelViewSet):
+    """Gestion complète des emplois du temps des classes"""
+    queryset = WeeklySchedule.objects.all()
+    serializer_class = WeeklyScheduleSerializer
+    
+    def get_permissions(self):
+        """
+        Définir les permissions selon l'action
+        """
+        # Actions accessibles aux utilisateurs authentifiés
+        if self.action in ['student_my_schedule', 'teacher_my_schedule', 'my_schedule']:
+            return [permissions.IsAuthenticated()]
+        # Actions accessibles aux admins seulement
+        elif self.action in ['list', 'retrieve', 'create', 'update', 'partial_update', 'destroy', 
+                            'generate_smart_schedule', 'class_schedule', 'sync_teachers', 
+                            'check_conflicts', 'available_teachers']:
+            return [IsAdminPermission()]
+        # Par défaut, admin seulement
+        else:
+            return [IsAdminPermission()]
+    
+    def get_queryset(self):
+        return WeeklySchedule.objects.all().prefetch_related(
+            'time_slots',
+            'time_slots__subject',
+            'time_slots__subject__specialty',
+            'time_slots__teacher',
+            'time_slots__teacher_schedule',
+            'class_assigned'
+        ).select_related('class_assigned')
+
+    def list(self, request, *args, **kwargs):
+        """Liste tous les emplois du temps (admin seulement)"""
+        try:
+            queryset = self.get_queryset()
+            serializer = WeeklyScheduleSerializer(queryset, many=True)
+            
+            return Response({
+                'success': True,
+                'count': queryset.count(),
+                'schedules': serializer.data
+            })
+        except Exception as e:
+            logger.error(f"Erreur list(): {e}")
+            return Response({'success': False, 'error': str(e)}, status=500)
+
+    # ========================================
+    # ROUTES SPÉCIFIQUES POUR ÉTUDIANTS ET ENSEIGNANTS
+    # ========================================
+    
+    @action(detail=False, methods=['get'], url_path='student/my-schedule', permission_classes=[permissions.IsAuthenticated])
+    def student_my_schedule(self, request):
+        """Route SPÉCIFIQUE pour les étudiants seulement"""
+        user = request.user
+        
+        logger.info(f"Route student/my-schedule appelée par {user.username} (rôle: {user.role})")
+        
+        # Vérifier que c'est bien un étudiant
+        if user.role != 'student':
+            logger.warning(f"Accès interdit: {user.username} n'est pas étudiant")
+            return Response({
+                'success': False,
+                'error': 'Cette route est réservée aux étudiants'
+            }, status=403)
+        
+        # Appeler la méthode spécifique étudiant
+        return self._get_student_schedule(user)
+    
+    @action(detail=False, methods=['get'], url_path='teacher/my-schedule', permission_classes=[permissions.IsAuthenticated])
+    def teacher_my_schedule(self, request):
+        """Route SPÉCIFIQUE pour les enseignants seulement"""
+        user = request.user
+        
+        logger.info(f"Route teacher/my-schedule appelée par {user.username} (rôle: {user.role})")
+        
+        # Vérifier que c'est bien un enseignant
+        if user.role != 'teacher':
+            logger.warning(f"Accès interdit: {user.username} n'est pas enseignant")
+            return Response({
+                'success': False,
+                'error': 'Cette route est réservée aux enseignants'
+            }, status=403)
+        
+        # Appeler la méthode spécifique enseignant
+        return self._get_teacher_schedule(user)
+    
+    @action(detail=False, methods=['get'], url_path='my-schedule', permission_classes=[permissions.IsAuthenticated])
+    def my_schedule(self, request):
+        """Route GÉNÉRIQUE qui détermine automatiquement le rôle"""
+        user = request.user
+        
+        logger.info(f"Route my-schedule appelée par {user.username} (rôle: {user.role})")
+        
+        if not user.is_authenticated:
+            logger.error("Utilisateur non authentifié")
+            return Response({
+                'success': False,
+                'error': 'Authentication required'
+            }, status=401)
+        
+        try:
+            if user.role == 'student':
+                return self._get_student_schedule(user)
+            elif user.role == 'teacher':
+                return self._get_teacher_schedule(user)
+            elif user.role in ['admin', 'superadmin']:
+                # Si l'admin est aussi enseignant
+                if hasattr(user, 'teacher_profile'):
+                    return self._get_teacher_schedule(user)
+                else:
+                    return Response({
+                        'success': False,
+                        'error': 'Cette fonctionnalité est réservée aux étudiants et enseignants'
+                    }, status=403)
+            else:
+                return Response({
+                    'success': False,
+                    'error': 'Rôle utilisateur non reconnu'
+                }, status=403)
+                
+        except Exception as e:
+            logger.error(f"Erreur my_schedule pour {user.username}: {str(e)}")
+            return Response({
+                'success': False,
+                'error': 'Erreur lors de la récupération de votre emploi du temps'
+            }, status=500)
+    
+    def _get_student_schedule(self, user):
+        """Récupère l'emploi du temps d'un étudiant"""
+        logger.info(f"Récupération emploi pour étudiant: {user.username}")
+        
+        try:
+            # Vérifier si l'utilisateur a un profil étudiant
+            student_profile = getattr(user, 'student_profile', None)
+            
+            if not student_profile:
+                logger.warning(f"Pas de profil étudiant pour {user.username}")
+                return Response({
+                    'success': True,
+                    'message': 'Vous n\'avez pas de profil étudiant',
+                    'data': {
+                        'class_name': None,
+                        'time_slots': [],
+                        'has_schedule': False
+                    }
+                })
+            
+            # Vérifier si l'étudiant est assigné à une classe
+            if not student_profile.class_assigned:
+                logger.info(f"Étudiant {user.username} non assigné à une classe")
+                return Response({
+                    'success': True,
+                    'message': 'Vous n\'êtes pas encore assigné à une classe',
+                    'data': {
+                        'class_name': None,
+                        'time_slots': [],
+                        'has_schedule': False
+                    }
+                })
+            
+            class_obj = student_profile.class_assigned
+            logger.info(f"Étudiant {user.username} dans la classe: {class_obj.name}")
+            
+            # Chercher l'emploi du temps de la classe
+            schedule = WeeklySchedule.objects.filter(
+                class_assigned=class_obj
+            ).prefetch_related(
+                'time_slots',
+                'time_slots__subject',
+                'time_slots__teacher',
+                'time_slots__schedule__class_assigned'
+            ).first()
+            
+            if not schedule:
+                logger.info(f"Pas d'emploi du temps pour la classe {class_obj.name}")
+                return Response({
+                    'success': True,
+                    'message': 'Emploi du temps en cours de préparation',
+                    'data': {
+                        'class_name': class_obj.name,
+                        'time_slots': [],
+                        'has_schedule': False,
+                        'updated_at': None
+                    }
+                })
+            
+            # Récupérer tous les créneaux
+            time_slots = schedule.time_slots.all().order_by('day', 'start_time')
+            
+            # Organiser par jour
+            schedule_by_day = {}
+            day_translation = {
+                'Monday': 'Lundi',
+                'Tuesday': 'Mardi',
+                'Wednesday': 'Mercredi',
+                'Thursday': 'Jeudi',
+                'Friday': 'Vendredi'
+            }
+            
+            for slot in time_slots:
+                day_french = day_translation.get(slot.day, slot.day)
+                if day_french not in schedule_by_day:
+                    schedule_by_day[day_french] = []
+                
+                slot_data = {
+                    'id': slot.id,
+                    'day': slot.day,
+                    'day_display': slot.get_day_display(),
+                    'start_time': slot.start_time.strftime('%H:%M') if slot.start_time else '',
+                    'end_time': slot.end_time.strftime('%H:%M') if slot.end_time else '',
+                    'subject_name': slot.subject.name if slot.subject else 'Matière',
+                    'teacher_name': slot.teacher.get_full_name() if slot.teacher else 'Enseignant',
+                    'classroom': slot.classroom or 'Salle non définie',
+                    'duration': self._calculate_duration(slot.start_time, slot.end_time)
+                }
+                schedule_by_day[day_french].append(slot_data)
+            
+            logger.info(f"Emploi trouvé pour {user.username}: {time_slots.count()} créneaux")
+            
+            return Response({
+                'success': True,
+                'data': {
+                    'id': schedule.id,
+                    'class_assigned': class_obj.id,
+                    'class_name': class_obj.name,
+                    'time_slots': [slot_data for day_slots in schedule_by_day.values() for slot_data in day_slots],
+                    'schedule_by_day': schedule_by_day,
+                    'total_slots': time_slots.count(),
+                    'updated_at': schedule.updated_at,
+                    'has_schedule': True
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Erreur _get_student_schedule: {str(e)}")
+            return Response({
+                'success': False,
+                'error': f'Erreur technique: {str(e)}'
+            }, status=500)
+    
+    def _get_teacher_schedule(self, user):
+        """Récupère l'emploi du temps d'un enseignant"""
+        logger.info(f"Récupération emploi pour enseignant: {user.username}")
+        
+        try:
+            # Récupérer tous les créneaux de l'enseignant
+            time_slots = TimeSlot.objects.filter(
+                teacher=user
+            ).select_related(
+                'subject', 
+                'subject__specialty', 
+                'schedule__class_assigned'
+            ).order_by('day', 'start_time')
+            
+            # Récupérer ou créer l'emploi de l'enseignant
+            teacher_schedule, created = TeacherSchedule.objects.get_or_create(teacher=user)
+            
+            # Organiser par jour
+            schedule_by_day = {}
+            day_translation = {
+                'Monday': 'Lundi',
+                'Tuesday': 'Mardi',
+                'Wednesday': 'Mercredi',
+                'Thursday': 'Jeudi',
+                'Friday': 'Vendredi'
+            }
+            
+            # Calculer le total d'heures et organiser par jour
+            total_hours = 0
+            days_with_classes = set()
+            
+            for slot in time_slots:
+                day_french = day_translation.get(slot.day, slot.day)
+                if day_french not in schedule_by_day:
+                    schedule_by_day[day_french] = []
+                
+                slot_data = {
+                    'id': slot.id,
+                    'day': slot.day,
+                    'day_display': slot.get_day_display(),
+                    'start_time': slot.start_time.strftime('%H:%M') if slot.start_time else '',
+                    'end_time': slot.end_time.strftime('%H:%M') if slot.end_time else '',
+                    'subject_name': slot.subject.name if slot.subject else 'Matière',
+                    'class_name': slot.schedule.class_assigned.name if slot.schedule and slot.schedule.class_assigned else 'Classe',
+                    'classroom': slot.classroom or 'Salle non définie',
+                    'duration': self._calculate_duration(slot.start_time, slot.end_time)
+                }
+                schedule_by_day[day_french].append(slot_data)
+                
+                # Ajouter à la liste des jours avec cours
+                days_with_classes.add(day_french)
+                
+                # Calculer les heures
+                if slot.start_time and slot.end_time:
+                    start_dt = datetime.combine(datetime.today(), slot.start_time)
+                    end_dt = datetime.combine(datetime.today(), slot.end_time)
+                    total_hours += (end_dt - start_dt).total_seconds() / 3600
+            
+            logger.info(f"Emploi trouvé pour enseignant {user.username}: {time_slots.count()} créneaux")
+            
+            return Response({
+                'success': True,
+                'data': {
+                    'teacher_id': user.id,
+                    'teacher_name': user.get_full_name(),
+                    'teacher_email': user.email,
+                    'teacher_specialty': user.specialty.name if user.specialty else None,
+                    'teacher_schedule_id': teacher_schedule.id,
+                    'weekly_hours': float(teacher_schedule.weekly_hours),
+                    'max_hours': float(teacher_schedule.max_hours),
+                    'is_full': teacher_schedule.is_full(),
+                    'time_slots': [slot_data for day_slots in schedule_by_day.values() for slot_data in day_slots],
+                    'schedule_by_day': schedule_by_day,
+                    'total_hours': round(total_hours, 2),
+                    'total_slots': time_slots.count(),
+                    'days_with_classes': len(days_with_classes),
+                    'updated_at': teacher_schedule.updated_at
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Erreur _get_teacher_schedule: {str(e)}")
+            return Response({
+                'success': False,
+                'error': f'Erreur technique: {str(e)}'
+            }, status=500)
+    
+    def _calculate_duration(self, start_time, end_time):
+        """Calcule la durée en heures"""
+        if not start_time or not end_time:
+            return 0.0
+        
+        try:
+            start_dt = datetime.combine(datetime.today(), start_time)
+            end_dt = datetime.combine(datetime.today(), end_time)
+            duration = (end_dt - start_dt).total_seconds() / 3600
+            return round(duration, 2)
+        except:
+            return 0.0
+
+    # ========================================
+    # ACTIONS ADMIN
+    # ========================================
+    
+    @action(detail=False, methods=['post'], url_path='generate-smart')
+    def generate_smart_schedule(self, request):
+        """Génère un emploi du temps intelligent pour une classe (admin seulement)"""
+        try:
+            class_id = request.data.get('class_id')
+            force_update = request.data.get('force_update', False)
+            
+            if not class_id:
+                return Response({
+                    'success': False, 
+                    'error': 'class_id requis'
+                }, status=400)
+            
+            class_obj = Class.objects.get(id=class_id)
+            
+            if Subject.objects.filter(class_assigned=class_obj, teacher__isnull=False).count() == 0:
+                return Response({
+                    'success': False,
+                    'error': 'Pas de matières avec enseignant'
+                }, status=400)
+            
+            # Simuler une génération simple pour test
+            schedule, created = WeeklySchedule.objects.get_or_create(
+                class_assigned=class_obj
+            )
+            
+            if not created and not force_update and schedule.time_slots.count() > 0:
+                return Response({
+                    'success': True,
+                    'message': f'Emploi existe déjà pour {class_obj.name}',
+                    'data': {
+                        'schedule_id': schedule.id,
+                        'slots_created': 0,
+                        'teachers_updated': 0,
+                        'schedule': WeeklyScheduleSerializer(schedule).data
+                    }
+                })
+            
+            # Créer des créneaux de test
+            if created or force_update:
+                # Supprimer les anciens créneaux
+                schedule.time_slots.all().delete()
+                
+                # Ajouter quelques créneaux de test
+                test_subjects = Subject.objects.filter(class_assigned=class_obj, teacher__isnull=False)[:3]
+                
+                if test_subjects:
+                    days = ['Monday', 'Tuesday', 'Wednesday']
+                    for i, day in enumerate(days):
+                        if i < len(test_subjects):
+                            subject = test_subjects[i]
+                            TimeSlot.objects.create(
+                                day=day,
+                                start_time=time(8 + i, 0),
+                                end_time=time(10 + i, 0),
+                                subject=subject,
+                                teacher=subject.teacher,
+                                classroom=f"Salle {101 + i}",
+                                schedule=schedule
+                            )
+            
+            return Response({
+                'success': True,
+                'message': f'Emploi généré pour {class_obj.name}',
+                'data': {
+                    'schedule_id': schedule.id,
+                    'slots_created': schedule.time_slots.count(),
+                    'teachers_updated': 1,
+                    'schedule': WeeklyScheduleSerializer(schedule).data
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Erreur génération smart: {str(e)}")
+            return Response({
+                'success': False,
+                'error': f'Erreur: {str(e)}'
+            }, status=500)
+    
+    @action(detail=False, methods=['get'], url_path='class/(?P<class_id>[^/.]+)')
+    def class_schedule(self, request, class_id=None):
+        """Récupère l'emploi du temps d'une classe spécifique (admin seulement)"""
+        try:
+            schedule = get_object_or_404(
+                WeeklySchedule.objects.prefetch_related('time_slots'),
+                class_assigned_id=class_id
+            )
+            
+            return Response({
+                'success': True,
+                'data': WeeklyScheduleSerializer(schedule).data
+            })
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': f'Emploi non trouvé'
+            }, status=404)
+    
+    @action(detail=False, methods=['get'], url_path='teacher/(?P<teacher_id>[^/.]+)')
+    def teacher_schedule(self, request, teacher_id=None):
+        """Récupère l'emploi du temps d'un enseignant spécifique (admin seulement)"""
+        try:
+            teacher = get_object_or_404(CustomUser, id=teacher_id, role='teacher')
+            
+            time_slots = TimeSlot.objects.filter(
+                teacher=teacher
+            ).select_related(
+                'subject', 
+                'subject__specialty', 
+                'schedule__class_assigned'
+            ).order_by('day', 'start_time')
+            
+            teacher_schedule = get_object_or_404(TeacherSchedule, teacher=teacher)
+            
+            return Response({
+                'success': True,
+                'data': {
+                    'teacher_name': teacher.get_full_name(),
+                    'time_slots': TimeSlotSerializer(time_slots, many=True).data,
+                    'teacher_schedule': TeacherScheduleSerializer(teacher_schedule).data
+                }
+            })
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': f'Enseignant non trouvé'
+            }, status=404)
+
+    # ========================================
+    # AUTRES ACTIONS
+    # ========================================
+    
+    @action(detail=False, methods=['post'], url_path='sync-teachers')
+    def sync_teachers(self, request):
+        """Synchronise tous les emplois des enseignants (admin seulement)"""
+        try:
+            # Simuler une synchronisation
+            teacher_schedules = TeacherSchedule.objects.all()
+            for ts in teacher_schedules:
+                ts.update_hours()
+            
+            return Response({
+                'success': True,
+                'message': f'{teacher_schedules.count()} enseignants synchronisés',
+                'data': {
+                    'teachers_updated': teacher_schedules.count()
+                }
+            })
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': f'Erreur: {str(e)}'
+            }, status=500)
+    
+    @action(detail=False, methods=['get'], url_path='check-conflicts')
+    def check_conflicts(self, request):
+        """Vérifie les conflits dans les emplois du temps (admin seulement)"""
+        try:
+            # Simuler une vérification
+            return Response({
+                'success': True,
+                'data': {
+                    'conflicts': [],
+                    'total_conflicts': 0
+                }
+            })
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': f'Erreur: {str(e)}'
+            }, status=500)
+    
+    @action(detail=False, methods=['get'], url_path='available-teachers')
+    def available_teachers(self, request):
+        """Retourne la liste des enseignants disponibles (admin seulement)"""
+        try:
+            class_id = request.query_params.get('class_id')
+            if not class_id:
+                return Response({
+                    'success': False,
+                    'error': 'class_id requis'
+                }, status=400)
+            
+            teachers = CustomUser.objects.filter(
+                role='teacher', 
+                approved=True
+            ).select_related('specialty')
+            
+            available_teachers = []
+            for teacher in teachers:
+                teacher_schedule, _ = TeacherSchedule.objects.get_or_create(teacher=teacher)
+                
+                available_teachers.append({
+                    'id': teacher.id,
+                    'name': teacher.get_full_name(),
+                    'email': teacher.email,
+                    'specialty': teacher.specialty.name if teacher.specialty else None,
+                    'available': not teacher_schedule.is_full(),
+                    'message': 'Disponible' if not teacher_schedule.is_full() else 'Emploi complet',
+                    'current_hours': float(teacher_schedule.weekly_hours),
+                    'max_hours': float(teacher_schedule.max_hours),
+                    'is_full': teacher_schedule.is_full()
+                })
+            
+            return Response({
+                'success': True,
+                'data': {
+                    'available_teachers': available_teachers,
+                    'total_teachers': len(available_teachers),
+                    'available_count': len([t for t in available_teachers if t['available']])
+                }
+            })
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': f'Erreur: {str(e)}'
+            }, status=500)
+
+class TimeSlotViewSet(viewsets.ModelViewSet):
+    """Gestion des créneaux horaires"""
+    queryset = TimeSlot.objects.all().select_related(
+        'subject', 'teacher', 'schedule', 'teacher_schedule'
+    )
+    serializer_class = TimeSlotSerializer
+    permission_classes = [IsAdmin]
+    
+    def create(self, request, *args, **kwargs):
+        try:
+            response = super().create(request, *args, **kwargs)
+            
+            # Mettre à jour l'enseignant si nécessaire
+            if response.status_code == 201:
+                teacher_id = request.data.get('teacher')
+                if teacher_id:
+                    try:
+                        teacher = CustomUser.objects.get(id=teacher_id)
+                        teacher_schedule, _ = TeacherSchedule.objects.get_or_create(teacher=teacher)
+                        teacher_schedule.update_hours()
+                    except Exception as e:
+                        logger.error(f"Erreur mise à jour enseignant après création créneau: {str(e)}")
+            
+            return response
+        except Exception as e:
+            logger.error(f"Erreur création créneau: {str(e)}")
+            return Response({
+                'success': False,
+                'error': f'Erreur lors de la création du créneau: {str(e)}'
+            }, status=500)
+    
+    def update(self, request, *args, **kwargs):
+        try:
+            response = super().update(request, *args, **kwargs)
+            
+            # Mettre à jour l'enseignant si nécessaire
+            if response.status_code == 200:
+                instance = self.get_object()
+                if instance.teacher:
+                    teacher_schedule, _ = TeacherSchedule.objects.get_or_create(teacher=instance.teacher)
+                    teacher_schedule.update_hours()
+            
+            return response
+        except Exception as e:
+            logger.error(f"Erreur mise à jour créneau: {str(e)}")
+            return Response({
+                'success': False,
+                'error': f'Erreur lors de la mise à jour du créneau: {str(e)}'
+            }, status=500)
+    
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            teacher = instance.teacher
+            
+            response = super().destroy(request, *args, **kwargs)
+            
+            # Mettre à jour l'enseignant après suppression
+            if response.status_code == 204:
+                if teacher:
+                    try:
+                        teacher_schedule, _ = TeacherSchedule.objects.get_or_create(teacher=teacher)
+                        teacher_schedule.update_hours()
+                    except Exception as e:
+                        logger.error(f"Erreur mise à jour enseignant après suppression créneau: {str(e)}")
+            
+            return response
+        except Exception as e:
+            logger.error(f"Erreur suppression créneau: {str(e)}")
+            return Response({
+                'success': False,
+                'error': f'Erreur lors de la suppression du créneau: {str(e)}'
+            }, status=500)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+app lms-sessions 
+
+
+# lms_sessions/models.py
+from django.db import models
+from accounts.models import CustomUser
+
+class Session(models.Model):
+    subject = models.ForeignKey('classes.Subject', on_delete=models.CASCADE, related_name='sessions')
+    teacher = models.ForeignKey(CustomUser, on_delete=models.CASCADE, limit_choices_to={'role': 'teacher'})
+    start_time = models.DateTimeField(auto_now_add=True)
+    end_time = models.DateTimeField(null=True, blank=True)
+    is_live = models.BooleanField(default=False)
+    recorded_file = models.FileField(upload_to='recorded_sessions/', null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.subject.name} - {self.teacher.username} ({'Live' if self.is_live else 'Terminé'})"
+
+class Test(models.Model):
+    subject = models.ForeignKey('classes.Subject', on_delete=models.CASCADE)
+    title = models.CharField(max_length=200)
+    file = models.FileField(upload_to='tests/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.title
+
+class TestScore(models.Model):
+    test = models.ForeignKey(Test, on_delete=models.CASCADE, related_name='scores')
+    student = models.ForeignKey(CustomUser, on_delete=models.CASCADE, limit_choices_to={'role': 'student'})
+    score = models.FloatField()  # /20
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('test', 'student')
+        ordering = ['-score']
+
+    def __str__(self):
+        return f"{self.student.username} ? {self.score}/20"
+
+
+
+
+
+
+
+
+
+
+# lms_sessions/serializers.py
+from rest_framework import serializers
+from .models import Session, Test, TestScore
+
+class SessionSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+    teacher_name = serializers.CharField(source='teacher.username', read_only=True)
+    class_name = serializers.CharField(source='subject.class_assigned.name', read_only=True)
+
+    class Meta:
+        model = Session
+        fields = ['id', 'subject', 'subject_name', 'class_name', 'teacher', 'teacher_name', 'start_time', 'end_time', 'is_live']
+        read_only_fields = ['teacher', 'start_time', 'end_time']
+
+class TestSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+
+    class Meta:
+        model = Test
+        fields = ['id', 'title', 'file', 'subject', 'subject_name', 'uploaded_at']
+        read_only_fields = ['uploaded_at']
+
+class TestScoreSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.username', read_only=True)
+    test_title = serializers.CharField(source='test.title', read_only=True)
+
+    class Meta:
+        model = TestScore
+        fields = ['id', 'test', 'test_title', 'student', 'student_name', 'score']
+
+
+
+
+
+
+
+
+
+# lms_sessions/urls.py
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import SessionViewSet, TestViewSet, TestScoreViewSet
+
+router = DefaultRouter()
+router.register(r'sessions', SessionViewSet)
+router.register(r'tests', TestViewSet)
+router.register(r'scores', TestScoreViewSet)
+
+urlpatterns = [
+    path('', include(router.urls)),
+]
+
+
+
+
+
+
+
+
+
+
+# lms_sessions/views.py
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from .models import Session, Test, TestScore
+from .serializers import SessionSerializer, TestSerializer, TestScoreSerializer
+from accounts.permissions import IsTeacher, IsStudent
+
+class SessionViewSet(viewsets.ModelViewSet):
+    queryset = Session.objects.all()
+    serializer_class = SessionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save(teacher=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def start_live(self, request, pk=None):
+        session = self.get_object()
+        if session.teacher != request.user:
+            return Response({"error": "Pas autorisé"}, status=403)
+        session.is_live = True
+        session.save()
+        return Response({"status": "live démarré", "session_id": session.id})
+
+    @action(detail=True, methods=['post'])
+    def stop_live(self, request, pk=None):
+        session = self.get_object()
+        session.is_live = False
+        session.save()
+        return Response({"status": "live terminé"})
+
+class TestViewSet(viewsets.ModelViewSet):
+    queryset = Test.objects.all()
+    serializer_class = TestSerializer
+    permission_classes = [IsAuthenticated, IsTeacher]
+
+class TestScoreViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = TestScore.objects.all()
+    serializer_class = TestScoreSerializer
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def ranking(self, request):
+        test_id = request.query_params.get('test_id')
+        if not test_id:
+            return Response({"error": "test_id requis"}, status=400)
+        scores = TestScore.objects.filter(test_id=test_id).select_related('student')
+        serializer = self.get_serializer(scores, many=True)
+        return Response(serializer.data)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+et voila urls.py global de l'app   # backend/urls.py (version finale)
+from django.contrib import admin
+from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
+
+urlpatterns = [
+    path("admin/", admin.site.urls),
+    
+    # API ROUTES
+    path("api/accounts/", include("accounts.urls")),
+    path("api/classes/", include("classes.urls")),
+    path("api/courses/", include("courses.urls")),
+    path("api/lms/", include("lms_sessions.urls")),
+    path("api/notifications/", include("notifications.urls")),
+    path("api/schedule/", include("schedule.urls")),
+    path("api/live/", include("live.urls")),
+    path("api/tests/", include("tests.urls")),
+    
+    # RACCOURCI
+    path("api/specialties/", include("classes.urls")),
+]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+
+
+
+
+
+
+
+
+
+et setting.py pour les informatiosn de project   # backend/backend/settings.py ? VERSION CORRIGÉE
+import os
+from pathlib import Path
+from datetime import timedelta
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+SECRET_KEY = 'django-insecure-change-me-in-production-123456789'
+DEBUG = True
+ALLOWED_HOSTS = ['*']
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+
+    # Apps tierces
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'corsheaders',
+    'channels',
+    'django_celery_beat',
+
+    # Tes apps
+    'accounts',
+    'classes',
+    'courses',
+    'lms_sessions',
+    'notifications',
+    'live',
+    'tests',
+    'schedule',
+]
+
+MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+ROOT_URLCONF = 'backend.urls'
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [BASE_DIR / 'templates'],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = 'backend.wsgi.application'
+ASGI_APPLICATION = 'backend.asgi.application'
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
+
+AUTH_USER_MODEL = 'accounts.CustomUser'
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+}
+
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+
+# Channel Layers - Version simplifiée pour développement
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    },
+}
+
+# Static & Media
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [BASE_DIR / "static"]
+STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / "media"
+
+LANGUAGE_CODE = 'fr-fr'
+TIME_ZONE = 'Africa/Casablanca'
+USE_I18N = True
+USE_TZ = True
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'DEBUG',
+    },
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

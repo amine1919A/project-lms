@@ -1,0 +1,39 @@
+[
+{
+  "model": "classes.class",
+  "pk": 4,
+  "fields": {
+    "name": "ING1/2",
+    "max_students": 30,
+    "students": [
+      6,
+      7,
+      8,
+      16
+    ]
+  }
+},
+{
+  "model": "classes.class",
+  "pk": 5,
+  "fields": {
+    "name": "ING1-2",
+    "max_students": 30,
+    "students": [
+      1
+    ]
+  }
+},
+{
+  "model": "classes.class",
+  "pk": 10,
+  "fields": {
+    "name": "Ahmed",
+    "max_students": 30,
+    "students": [
+      21,
+      25
+    ]
+  }
+}
+]

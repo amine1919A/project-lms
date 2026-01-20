@@ -1,0 +1,55 @@
+/* ===========================
+   COURSES PAGE (USER & TEACHER)
+   =========================== */
+
+   .courses-container {
+    padding: 30px;
+    font-family: "Poppins", sans-serif;
+}
+
+.courses-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 20px;
+}
+
+/* Card */
+.course-card {
+    background: white;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    transition: 0.3s ease;
+}
+
+.course-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+}
+
+.course-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #4f46e5;
+}
+
+.course-desc {
+    font-size: 15px;
+    color: #555;
+    margin-bottom: 12px;
+}
+
+.course-button {
+    display: inline-block;
+    padding: 10px 16px;
+    background: #4f46e5;
+    color: white;
+    border-radius: 10px;
+    text-decoration: none;
+    transition: 0.3s;
+}
+
+.course-button:hover {
+    background: #4338ca;
+}

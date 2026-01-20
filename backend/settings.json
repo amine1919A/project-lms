@@ -1,0 +1,12 @@
+{
+    "python.analysis.extraPaths": [
+      "."
+    ],
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": false,
+    "python.linting.flake8Enabled": false,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.diagnosticSeverityOverrides": {
+      "reportMissingImports": "none"
+    }
+  }

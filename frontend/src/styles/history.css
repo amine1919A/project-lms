@@ -1,0 +1,50 @@
+/* ===========================
+   HISTORY PAGE (USER)
+   =========================== */
+
+   .history-container {
+    padding: 30px;
+    max-width: 900px;
+    margin: auto;
+    font-family: "Poppins", sans-serif;
+}
+
+.history-title {
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+/* Table */
+.history-table {
+    width: 100%;
+    border-collapse: collapse;
+    overflow: hidden;
+    border-radius: 12px;
+}
+
+.history-table th {
+    background: #4f46e5;
+    color: white;
+    padding: 14px;
+    text-align: left;
+}
+
+.history-table td {
+    padding: 12px;
+    border-bottom: 1px solid #ddd;
+}
+
+.history-table tr:hover {
+    background: #f3f4f6;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .history-table th,
+    .history-table td {
+        font-size: 14px;
+        padding: 10px;
+    }
+}

@@ -1,0 +1,42 @@
+[
+{
+  "model": "classes.subject",
+  "pk": 7,
+  "fields": {
+    "name": "Math",
+    "class_assigned": 5,
+    "teacher": 14,
+    "specialty": 6
+  }
+},
+{
+  "model": "classes.subject",
+  "pk": 14,
+  "fields": {
+    "name": "Math",
+    "class_assigned": 10,
+    "teacher": 14,
+    "specialty": 6
+  }
+},
+{
+  "model": "classes.subject",
+  "pk": 15,
+  "fields": {
+    "name": "Cybersécurité",
+    "class_assigned": 10,
+    "teacher": 3,
+    "specialty": 1
+  }
+},
+{
+  "model": "classes.subject",
+  "pk": 16,
+  "fields": {
+    "name": "Math",
+    "class_assigned": 4,
+    "teacher": 14,
+    "specialty": 6
+  }
+}
+]

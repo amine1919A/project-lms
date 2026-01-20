@@ -1,0 +1,342 @@
+/* src/pages/admin/AdminSchedule.css */
+.admin-schedule-container {
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  
+  .page-header {
+    margin-bottom: 2rem;
+  }
+  
+  .page-header h1 {
+    color: #c62828;
+    margin: 0 0 0.5rem 0;
+    font-size: 2rem;
+  }
+  
+  .page-header p {
+    color: #666;
+    margin: 0;
+  }
+  
+  .schedule-controls {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 2rem;
+  }
+  
+  .class-selector {
+    flex: 1;
+  }
+  
+  .class-selector label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #333;
+    font-weight: 500;
+  }
+  
+  .form-select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 1rem;
+  }
+  
+  .action-buttons {
+    display: flex;
+    gap: 1rem;
+  }
+  
+  .btn-generate {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: transform 0.2s;
+  }
+  
+  .btn-generate:hover:not(:disabled) {
+    transform: translateY(-2px);
+  }
+  
+  .btn-generate:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  
+  .add-timeslot-form {
+    background: white;
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  
+  .add-timeslot-form h3 {
+    margin: 0 0 1.5rem 0;
+    color: #333;
+  }
+  
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  
+  .form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #666;
+    font-size: 0.9rem;
+  }
+  
+  .form-group input,
+  .form-group select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 1rem;
+  }
+  
+  .btn-submit {
+    background: #c62828;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  
+  .btn-submit:hover {
+    background: #b71c1c;
+  }
+  
+  .schedule-display {
+    background: white;
+    border-radius: 12px;
+    padding: 2rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  
+  .schedule-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+  }
+  
+  .schedule-header h2 {
+    margin: 0;
+    color: #333;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  
+  .last-update {
+    font-size: 0.9rem;
+    color: #666;
+    font-weight: normal;
+  }
+  
+  .loading {
+    text-align: center;
+    padding: 3rem;
+    color: #666;
+  }
+  
+  .empty-schedule {
+    text-align: center;
+    padding: 4rem 2rem;
+  }
+  
+  .empty-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+  }
+  
+  .empty-schedule h3 {
+    color: #666;
+    margin: 0 0 0.5rem 0;
+  }
+  
+  .empty-schedule p {
+    color: #999;
+    margin: 0;
+  }
+  
+  .schedule-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1rem;
+  }
+  
+  .day-column {
+    border: 1px solid #eee;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  
+  .day-header {
+    background: #f8f9fa;
+    padding: 1rem;
+    text-align: center;
+    border-bottom: 1px solid #eee;
+  }
+  
+  .day-header h3 {
+    margin: 0;
+    color: #333;
+    font-size: 1.1rem;
+  }
+  
+  .slot-count {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.85rem;
+    color: #666;
+  }
+  
+  .day-slots {
+    padding: 1rem;
+    min-height: 400px;
+  }
+  
+  .time-slot-card {
+    background: white;
+    border: 1px solid #e3f2fd;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    transition: transform 0.2s;
+  }
+  
+  .time-slot-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  }
+  
+  .slot-time {
+    color: #1976d2;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+  }
+  
+  .slot-content {
+    margin-bottom: 0.5rem;
+  }
+  
+  .slot-subject {
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 0.25rem;
+  }
+  
+  .slot-teacher,
+  .slot-room {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 0.25rem;
+  }
+  
+  .slot-actions {
+    text-align: right;
+  }
+  
+  .btn-delete {
+    background: #ffebee;
+    color: #d32f2f;
+    border: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .btn-delete:hover {
+    background: #ffcdd2;
+  }
+  
+  .no-slots {
+    text-align: center;
+    padding: 2rem;
+    color: #999;
+    font-style: italic;
+  }
+  
+  .select-class-prompt {
+    text-align: center;
+    padding: 6rem 2rem;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  
+  .prompt-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+  }
+  
+  .select-class-prompt h3 {
+    color: #666;
+    margin: 0 0 0.5rem 0;
+  }
+  
+  .select-class-prompt p {
+    color: #999;
+    margin: 0;
+  }
+  
+  /* Responsive */
+  @media (max-width: 1200px) {
+    .schedule-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  
+  @media (max-width: 768px) {
+    .schedule-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .schedule-controls {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    
+    .form-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .schedule-grid {
+      grid-template-columns: 1fr;
+    }
+    
+    .admin-schedule-container {
+      padding: 1rem;
+    }
+  }

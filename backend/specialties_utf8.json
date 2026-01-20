@@ -1,0 +1,50 @@
+[
+{
+  "model": "classes.specialty",
+  "pk": 1,
+  "fields": {
+    "name": "Cybersécurité",
+    "created_at": "2025-12-01T22:04:17.515Z"
+  }
+},
+{
+  "model": "classes.specialty",
+  "pk": 2,
+  "fields": {
+    "name": "Intelligence Artificielle",
+    "created_at": "2025-12-01T22:04:27.914Z"
+  }
+},
+{
+  "model": "classes.specialty",
+  "pk": 3,
+  "fields": {
+    "name": "Big Data & Cloud",
+    "created_at": "2025-12-01T22:04:39.478Z"
+  }
+},
+{
+  "model": "classes.specialty",
+  "pk": 4,
+  "fields": {
+    "name": "Génie Logiciel",
+    "created_at": "2025-12-01T22:04:49.022Z"
+  }
+},
+{
+  "model": "classes.specialty",
+  "pk": 5,
+  "fields": {
+    "name": "Réseaux & Sécurité",
+    "created_at": "2025-12-01T22:04:59.127Z"
+  }
+},
+{
+  "model": "classes.specialty",
+  "pk": 6,
+  "fields": {
+    "name": "Math",
+    "created_at": "2025-12-03T22:10:05.071Z"
+  }
+}
+]

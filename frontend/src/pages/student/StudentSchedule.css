@@ -1,0 +1,341 @@
+.teacher-schedule-container {
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  
+  .teacher-schedule-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  
+  .header-left h1 {
+    color: #27ae60;
+    margin: 0.5rem 0;
+  }
+  
+  .day-filter {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  
+  .day-filter button {
+    padding: 0.5rem 1rem;
+    border: none;
+    background: #f5f5f5;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.3s;
+    white-space: nowrap;
+  }
+  
+  .day-filter button.active {
+    background: #27ae60;
+    color: white;
+    font-weight: 600;
+  }
+  
+  .day-filter button:hover:not(.active) {
+    background: #e0e0e0;
+  }
+  
+  /* Stats grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  
+  .stat-card {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    transition: transform 0.3s;
+  }
+  
+  .stat-card:hover {
+    transform: translateY(-5px);
+  }
+  
+  .stat-icon {
+    font-size: 2rem;
+    width: 60px;
+    height: 60px;
+    background: #27ae6020;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #27ae60;
+  }
+  
+  .stat-content h3 {
+    margin: 0 0 0.25rem 0;
+    color: #333;
+    font-size: 1.5rem;
+  }
+  
+  .stat-content p {
+    margin: 0;
+    color: #666;
+    font-size: 0.9rem;
+  }
+  
+  /* Schedule content */
+  .teacher-schedule-content {
+    background: white;
+    border-radius: 12px;
+    padding: 2rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    min-height: 400px;
+  }
+  
+  .empty-schedule {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    text-align: center;
+    color: #666;
+  }
+  
+  .empty-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+  }
+  
+  /* Schedule grid */
+  .schedule-grid {
+    display: grid;
+    gap: 2rem;
+  }
+  
+  .day-column {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 1.5rem;
+  }
+  
+  .day-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #e0e0e0;
+  }
+  
+  .day-header h3 {
+    margin: 0;
+    color: #333;
+    font-size: 1.1rem;
+  }
+  
+  .slot-count {
+    background: #27ae60;
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  
+  .day-slots {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .teacher-slot-card {
+    background: white;
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    border-left: 3px solid #27ae60;
+    transition: all 0.3s;
+  }
+  
+  .teacher-slot-card:hover {
+    transform: translateX(5px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  }
+  
+  .slot-time {
+    font-weight: 600;
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+  }
+  
+  .slot-content {
+    margin-bottom: 1rem;
+  }
+  
+  .slot-subject {
+    margin: 0 0 0.5rem 0;
+    color: #333;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  
+  .slot-class, .slot-room {
+    font-size: 0.9rem;
+    color: #666;
+    margin-bottom: 0.25rem;
+  }
+  
+  .slot-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+  
+  .btn-action {
+    background: #3498db;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 0.3s;
+  }
+  
+  .btn-action:hover {
+    background: #2980b9;
+  }
+  
+  /* Empty day */
+  .empty-day .no-classes {
+    text-align: center;
+    padding: 2rem;
+    color: #999;
+    font-style: italic;
+  }
+  
+  /* Single day view */
+  .single-day-view {
+    padding: 1rem;
+  }
+  
+  .single-day-view h2 {
+    color: #333;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #eee;
+  }
+  
+  .timeline-view {
+    position: relative;
+    height: 600px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 1rem;
+  }
+  
+  .timeline-slot {
+    position: absolute;
+    left: 1rem;
+    right: 1rem;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-left: 3px solid #27ae60;
+    border-radius: 6px;
+    padding: 0.75rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    overflow: hidden;
+  }
+  
+  .timeline-slot-content {
+    height: 100%;
+  }
+  
+  .timeline-time {
+    font-size: 0.8rem;
+    color: #666;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+  
+  .timeline-subject {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 0.25rem;
+    font-size: 0.9rem;
+  }
+  
+  .timeline-class, .timeline-room {
+    font-size: 0.8rem;
+    color: #666;
+  }
+  
+  /* No classes for a day */
+  .no-classes-day {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: #999;
+    font-size: 1.1rem;
+  }
+  
+  /* Loading state */
+  .teacher-schedule-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    text-align: center;
+  }
+  
+  .teacher-schedule-loading .loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #27ae60;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 1rem;
+  }
+  
+  .teacher-schedule-loading p {
+    color: #666;
+    font-size: 1.1rem;
+  }
+  
+  /* Responsive */
+  @media (max-width: 768px) {
+    .teacher-schedule-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    
+    .day-filter {
+      width: 100%;
+      overflow-x: auto;
+      padding-bottom: 0.5rem;
+    }
+    
+    .stats-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .schedule-grid {
+      gap: 1rem;
+    }
+    
+    .day-column {
+      padding: 1rem;
+    }
+  }
